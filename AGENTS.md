@@ -13,6 +13,7 @@
 | **developing-edzio** | Adding features, modifying transfer logic, working on the desktop app or signaling server. Covers project structure, key types, conventions, build commands, and log-based debugging. |
 | **testing-edzio** | Running tests, adding test coverage, debugging failures. Covers xUnit patterns, available fakes/stubs, and test file conventions. |
 | **publishing-edzio** | Publishing or distributing the desktop app or signaling server. Covers publish commands, output locations, and runtime requirements. |
+| **debugging-edzio** | Investigating any bug, hang, crash, or unexpected behavior. Creates and maintains a `docs/debug/<slug>/PROGRESS.md` so investigations survive session boundaries and already-verified theories are never re-examined. |
 
 ## Tech Stack
 
@@ -147,9 +148,10 @@ Client callbacks (server → client): `OfferReceived(sdp)`, `AnswerReceived(sdp)
 Before committing, verify:
 
 1. `dotnet build Edzio.slnx` — 0 errors
-2. `dotnet test Edzio.slnx` — all tests pass (1 skipped WebRTC integration test is expected)
+2. `dotnet test Edzio.slnx` — all tests pass (2 skipped WebRTC integration tests are expected)
 
 **Do NOT commit:**
 - `progress.md`
 - `docs/superpowers/`
+- `docs/debug/` (debug investigation logs — gitignored, local only)
 - Build output (`bin/`, `obj/`)

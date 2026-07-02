@@ -431,3 +431,4 @@ FodyWeavers.xsd
 # Edzio — never commit these
 progress.md
 docs/superpowers/
+docs/debug/
