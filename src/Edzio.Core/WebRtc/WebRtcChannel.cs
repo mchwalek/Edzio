@@ -36,12 +36,20 @@ public sealed class WebRtcChannel : ITransferChannel
     }
 
     /// <summary>
-    /// Starts the signalling exchange. Does not wait for the data channel
-    /// to open — call <see cref="WaitForOpenAsync"/> for that.
+    /// Performs the full signalling exchange (offer/answer + ICE) and returns once
+    /// both sides have set their remote descriptions. The data channel may still be
+    /// opening; call <see cref="WaitForOpenAsync"/> before sending data.
     /// </summary>
     public async Task ConnectAsync(CancellationToken ct = default)
     {
         _pc = new RTCPeerConnection(_rtcConfig);
+
+        // ── ICE candidate queue ─────────────────────────────────────────
+        // Remote candidates may arrive before setRemoteDescription is called.
+        // Buffer them and flush once the remote description is in place.
+        var pendingCandidates = new List<RTCIceCandidateInit>();
+        var remoteDescSet = false;
+        var candidateLock = new object();
 
         // ── Forward our ICE candidates to the remote peer ───────────────
         _pc.onicecandidate += candidate =>
@@ -52,11 +60,10 @@ public sealed class WebRtcChannel : ITransferChannel
                 sdpMid = candidate.sdpMid,
                 sdpMLineIndex = candidate.sdpMLineIndex
             });
-            // Fire-and-forget: signaling send is best-effort
             _ = _signaling.SendIceCandidateAsync(json);
         };
 
-        // ── Apply ICE candidates received from the remote peer ──────────
+        // ── Buffer remote ICE candidates until remote description is set ─
         _signaling.IceCandidateReceived += (_, json) =>
         {
             try
@@ -75,68 +82,80 @@ public sealed class WebRtcChannel : ITransferChannel
                             ? idx.GetUInt16()
                             : (ushort)0
                 };
-                _pc?.addIceCandidate(init);  // synchronous in SIPSorcery 6.x
+                lock (candidateLock)
+                {
+                    if (remoteDescSet)
+                        _pc?.addIceCandidate(init);
+                    else
+                        pendingCandidates.Add(init);
+                }
             }
-            catch
-            {
-                // Ignore malformed candidate JSON
-            }
+            catch { /* Ignore malformed candidate JSON */ }
         };
+
+        // ── Apply remote description and flush buffered candidates ───────
+        void ApplyRemoteDescription(RTCSessionDescriptionInit desc)
+        {
+            _pc?.setRemoteDescription(desc);
+            lock (candidateLock)
+            {
+                remoteDescSet = true;
+                foreach (var c in pendingCandidates)
+                    _pc?.addIceCandidate(c);
+                pendingCandidates.Clear();
+            }
+        }
 
         // ── Helper to wire a data channel once we have it ───────────────
         void WireDataChannel(RTCDataChannel dc)
         {
             _dataChannel = dc;
             dc.onopen += () => _channelOpen.TrySetResult();
-            // onmessage: (RTCDataChannel, DataChannelPayloadProtocols, byte[])
             dc.onmessage += (_, _, data) => _incoming.Writer.TryWrite(data);
         }
 
         if (_role == WebRtcRole.Offerer)
         {
-            // ── Offerer: create channel → offer → send offer ─────────────
+            // Subscribe to AnswerReceived BEFORE sending the offer.
+            // On a fast LAN the answer can arrive before control returns from
+            // SendOfferAsync — if we subscribed after, we'd miss it entirely.
+            var answerTcs = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _signaling.AnswerReceived += (_, sdp) => answerTcs.TrySetResult(sdp);
+
             var dc = await _pc.createDataChannel("edzio");
             WireDataChannel(dc);
 
-            var offer = _pc.createOffer();                   // synchronous
+            var offer = _pc.createOffer();
             await _pc.setLocalDescription(offer);
             await _signaling.SendOfferAsync(offer.sdp);
 
-            // Subscribe AFTER sending so it never races with the send
-            _signaling.AnswerReceived += (_, sdp) =>
+            var answerSdp = await answerTcs.Task.WaitAsync(ct);
+            ApplyRemoteDescription(new RTCSessionDescriptionInit
             {
-                // setRemoteDescription is synchronous in SIPSorcery 6.x
-                _pc?.setRemoteDescription(new RTCSessionDescriptionInit
-                {
-                    type = RTCSdpType.answer,
-                    sdp = sdp
-                });
-            };
+                type = RTCSdpType.answer,
+                sdp = answerSdp
+            });
         }
         else
         {
-            // ── Answerer: wait for offer → answer ────────────────────────
             _pc.ondatachannel += dc => WireDataChannel(dc);
 
-            _signaling.OfferReceived += (_, sdp) =>
+            // Subscribe to OfferReceived before anything else — same race applies.
+            var offerTcs = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _signaling.OfferReceived += (_, sdp) => offerTcs.TrySetResult(sdp);
+
+            var offerSdp = await offerTcs.Task.WaitAsync(ct);
+            ApplyRemoteDescription(new RTCSessionDescriptionInit
             {
-                if (_pc is null) return;
+                type = RTCSdpType.offer,
+                sdp = offerSdp
+            });
 
-                _pc.setRemoteDescription(new RTCSessionDescriptionInit
-                {
-                    type = RTCSdpType.offer,
-                    sdp = sdp
-                });
-
-                var answer = _pc.createAnswer();            // synchronous
-
-                // setLocalDescription is async; fire-and-forget from event
-                _ = Task.Run(async () =>
-                {
-                    await _pc.setLocalDescription(answer);
-                    await _signaling.SendAnswerAsync(answer.sdp);
-                });
-            };
+            var answer = _pc.createAnswer();
+            await _pc.setLocalDescription(answer);
+            await _signaling.SendAnswerAsync(answer.sdp);
         }
     }
 

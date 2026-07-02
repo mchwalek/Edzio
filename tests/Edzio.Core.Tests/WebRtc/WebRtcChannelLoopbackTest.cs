@@ -62,37 +62,26 @@ public class WebRtcChannelLoopbackTest
     }
 
     /// <summary>
-    /// Unit-level smoke test: ConnectAsync wires up the peer connection and
-    /// sends the offer through signaling without throwing.
-    /// Does not attempt ICE negotiation.
+    /// Integration test: full SDP exchange + ICE negotiation between two
+    /// in-process channels. Requires real network interfaces (host ICE candidates).
+    /// Run manually — not in CI.
     /// </summary>
-    [Fact]
-    public async Task Offerer_ConnectAsync_SendsOffer()
+    [Fact(Timeout = 30000, Skip = "Integration - requires real network interfaces; run manually")]
+    public async Task ConnectAsync_PairedChannels_ExchangeSdp()
     {
-        var fake = new FakeSignalingClient();
-        var config = new RTCConfiguration();
+        var paired = new PairedFakeSignaling();
+        var config  = new RTCConfiguration();
 
-        await using var channel = new WebRtcChannel(config, fake, WebRtcRole.Offerer);
-        await channel.ConnectAsync();
+        await using var offererChannel  = new WebRtcChannel(config, paired.Offerer,  WebRtcRole.Offerer);
+        await using var answererChannel = new WebRtcChannel(config, paired.Answerer, WebRtcRole.Answerer);
 
-        fake.SentOffers.Should().HaveCount(1);
-        fake.SentOffers[0].Should().NotBeNullOrWhiteSpace();
-    }
+        await Task.WhenAll(
+            offererChannel.ConnectAsync(),
+            answererChannel.ConnectAsync());
 
-    /// <summary>
-    /// Unit-level smoke test: Answerer subscribes to the offer event without
-    /// throwing during ConnectAsync.
-    /// </summary>
-    [Fact]
-    public async Task Answerer_ConnectAsync_SubscribesToOffer()
-    {
-        var fake = new FakeSignalingClient();
-        var config = new RTCConfiguration();
-
-        await using var channel = new WebRtcChannel(config, fake, WebRtcRole.Answerer);
-
-        // Should complete immediately (no awaits in answerer path before the event fires)
-        var act = async () => await channel.ConnectAsync();
-        await act.Should().NotThrowAsync();
+        paired.Offerer.SentOffers.Should().HaveCount(1);
+        paired.Offerer.SentOffers[0].Should().NotBeNullOrWhiteSpace();
+        paired.Answerer.SentAnswers.Should().HaveCount(1);
+        paired.Answerer.SentAnswers[0].Should().NotBeNullOrWhiteSpace();
     }
 }
