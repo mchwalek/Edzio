@@ -10,8 +10,9 @@
 
 | Skill | When to use |
 | ----- | ----------- |
-| **developing-edzio** | Adding features, modifying transfer logic, working on the desktop app or signaling server. Covers project structure, key types, conventions, and build commands. |
+| **developing-edzio** | Adding features, modifying transfer logic, working on the desktop app or signaling server. Covers project structure, key types, conventions, build commands, and log-based debugging. |
 | **testing-edzio** | Running tests, adding test coverage, debugging failures. Covers xUnit patterns, available fakes/stubs, and test file conventions. |
+| **publishing-edzio** | Publishing or distributing the desktop app or signaling server. Covers publish commands, output locations, and runtime requirements. |
 
 ## Tech Stack
 
