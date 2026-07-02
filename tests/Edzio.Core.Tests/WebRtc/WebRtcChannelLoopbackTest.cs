@@ -157,6 +157,73 @@ public class WebRtcChannelLoopbackTest
     }
 
     /// <summary>
+    /// Regression test for a follow-up bug found after the fix above shipped:
+    /// a *fixed* flush timeout (the original fix used 10 seconds) doesn't scale
+    /// to larger files. `TransferSession.SendAsync` calls
+    /// <see cref="WebRtcChannel.SendAsync"/> in a tight loop for every chunk with
+    /// no throttling, so a large file (e.g. ~84 MB / ~320 chunks in production)
+    /// gets dumped into the local SCTP send queue almost instantly — far more
+    /// than a fixed timeout can drain in time, so the connection was closed with
+    /// most of the data still unsent (observed in production as the receiver
+    /// getting stuck partway through, e.g. at 10%).
+    ///
+    /// This test sends many chunk-sized messages back-to-back (mirroring
+    /// TransferSession.SendAsync's loop) and disposes immediately afterward,
+    /// then asserts every chunk is still delivered intact and in order. It also
+    /// indirectly exercises <see cref="WebRtcChannel"/>'s send-buffer
+    /// backpressure and the stall-detecting (not fixed-timeout) flush wait in
+    /// <c>DisposeAsync</c>.
+    /// </summary>
+    [Fact(Timeout = 60000)]
+    public async Task SendAsync_ManyChunksBackToBack_ThenImmediateDispose_DeliversAllChunks()
+    {
+        var paired = new PairedFakeSignaling();
+        var config = new RTCConfiguration(); // host candidates only — no STUN needed
+
+        var offererChannel = new WebRtcChannel(config, paired.Offerer, WebRtcRole.Offerer);
+        await using var answererChannel = new WebRtcChannel(config, paired.Answerer, WebRtcRole.Answerer);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+
+        var answererConnectTask = answererChannel.ConnectAsync(cts.Token);
+        var offererConnectTask  = offererChannel.ConnectAsync(cts.Token);
+        await Task.WhenAll(offererConnectTask, answererConnectTask);
+
+        await Task.WhenAll(
+            offererChannel.WaitForOpenAsync(cts.Token),
+            answererChannel.WaitForOpenAsync(cts.Token));
+
+        // ~20 chunks of ~256 KB each (~5 MB total) — a scaled-down stand-in for
+        // a large multi-chunk file transfer like the 84 MB production case.
+        const int chunkCount = 20;
+        const int chunkSize = 262135; // matches ChunkEngine.ChunkSize
+        var rng = new Random(7);
+        var chunks = new byte[chunkCount][];
+        for (int i = 0; i < chunkCount; i++)
+        {
+            chunks[i] = new byte[chunkSize];
+            rng.NextBytes(chunks[i]);
+        }
+
+        // Mirrors TransferSession.SendAsync: send every chunk back-to-back with
+        // no explicit wait in between.
+        foreach (var chunk in chunks)
+        {
+            await offererChannel.SendAsync(chunk, cts.Token);
+        }
+
+        // Mirrors the production pattern: dispose the sender's channel
+        // immediately after the last send, with no explicit wait.
+        await offererChannel.DisposeAsync();
+
+        for (int i = 0; i < chunkCount; i++)
+        {
+            var received = await answererChannel.ReceiveAsync(cts.Token);
+            received.Should().Equal(chunks[i]);
+        }
+    }
+
+    /// <summary>
     /// Integration test: full SDP exchange + ICE negotiation between two
     /// in-process channels. Requires real network interfaces (host ICE candidates).
     /// Run manually — not in CI.

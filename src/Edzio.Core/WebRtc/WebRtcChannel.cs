@@ -14,10 +14,31 @@ namespace Edzio.Core.WebRtc;
 public sealed class WebRtcChannel : ITransferChannel
 {
     /// <summary>
-    /// Maximum time to wait for the outbound SCTP send queue to drain before
-    /// forcibly closing the connection in <see cref="DisposeAsync"/>.
+    /// Backpressure threshold for <see cref="SendAsync"/>: once the SCTP
+    /// association's outbound send queue (<see cref="RTCDataChannel.bufferedAmount"/>)
+    /// exceeds this many bytes, further sends wait for it to drain before enqueuing
+    /// more data. Without this, a large file gets dumped into the local send queue
+    /// almost instantly regardless of real network throughput, which both (a) makes
+    /// per-chunk progress reporting meaningless (it reflects "enqueued", not "sent"),
+    /// and (b) leaves an unbounded amount of data still queued when the caller is
+    /// done sending and disposes the channel.
     /// </summary>
-    private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(10);
+    private const ulong MaxBufferedAmount = 1024 * 1024; // 1 MiB
+
+    /// <summary>
+    /// Poll interval while waiting for send-buffer backpressure or drain to resolve.
+    /// </summary>
+    private static readonly TimeSpan BufferPollInterval = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>
+    /// How long <see cref="FlushOutboundDataAsync"/> will keep waiting after the last
+    /// observed decrease in <see cref="RTCDataChannel.bufferedAmount"/> before giving
+    /// up and closing anyway. As long as the buffer keeps shrinking, the wait
+    /// continues indefinitely — this only fires when transmission has genuinely
+    /// stalled (e.g. the peer vanished), not merely because a large file takes a
+    /// while to send.
+    /// </summary>
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>
     /// Extra grace period after <see cref="RTCDataChannel.bufferedAmount"/> reaches
@@ -277,7 +298,21 @@ public sealed class WebRtcChannel : ITransferChannel
     public async Task SendAsync(byte[] data, CancellationToken ct = default)
     {
         await WaitForOpenAsync(ct);
+        await WaitForSendBufferSpaceAsync(ct);
         _dataChannel!.send(data);
+    }
+
+    /// <summary>
+    /// Applies backpressure so <see cref="SendAsync"/> doesn't dump an entire large
+    /// file into the local SCTP send queue faster than it can actually be
+    /// transmitted. See <see cref="MaxBufferedAmount"/>.
+    /// </summary>
+    private async Task WaitForSendBufferSpaceAsync(CancellationToken ct)
+    {
+        while (_dataChannel is not null && _dataChannel.bufferedAmount > MaxBufferedAmount)
+        {
+            await Task.Delay(BufferPollInterval, ct);
+        }
     }
 
     /// <inheritdoc/>
@@ -314,27 +349,79 @@ public sealed class WebRtcChannel : ITransferChannel
     /// <see cref="RTCDataChannel.bufferedAmount"/> to reach zero — the standard
     /// WebRTC-recommended check before closing a data channel — ensures the send
     /// queue has actually been handed off to the transport first.
+    ///
+    /// This uses stall-detection rather than a fixed timeout: as long as
+    /// <c>bufferedAmount</c> keeps decreasing, waiting continues indefinitely
+    /// (so this correctly scales to files of any size), and only gives up after
+    /// <see cref="StallTimeout"/> of no progress (i.e. the connection is genuinely
+    /// dead, not just slow).
     /// </remarks>
     private async Task FlushOutboundDataAsync()
     {
         if (_dataChannel is null || _dataChannel.readyState != RTCDataChannelState.open)
             return;
 
-        var deadline = DateTime.UtcNow + FlushTimeout;
-        while (_dataChannel.bufferedAmount > 0 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20);
-        }
+        var drained = await WaitForDrainOrStallAsync(
+            () => _dataChannel.bufferedAmount,
+            BufferPollInterval,
+            StallTimeout,
+            delay: Task.Delay,
+            utcNow: () => DateTimeOffset.UtcNow);
 
-        if (_dataChannel.bufferedAmount > 0)
+        if (!drained)
         {
-            Log($"[{_role}] Timed out after {FlushTimeout.TotalSeconds}s waiting for outbound data " +
-                $"to flush ({_dataChannel.bufferedAmount} bytes still buffered) — closing anyway.");
+            Log($"[{_role}] Outbound send buffer stalled with no progress for " +
+                $"{StallTimeout.TotalSeconds}s — closing anyway.");
         }
         else
         {
             // Give the last fragment(s) a brief moment to actually leave the socket.
             await Task.Delay(FlushGracePeriod);
         }
+    }
+
+    /// <summary>
+    /// Polls <paramref name="getBufferedAmount"/> until it reaches zero (fully
+    /// drained — returns <see langword="true"/>), or gives up and returns
+    /// <see langword="false"/> once <paramref name="stallTimeout"/> has elapsed
+    /// with no decrease in the observed value.
+    /// </summary>
+    /// <remarks>
+    /// Extracted as a static method parameterized over time/delay so the
+    /// stall-vs-fixed-timeout behavior can be unit tested deterministically,
+    /// without relying on real wall-clock waits or real network throughput.
+    /// This is the core fix for a regression where an earlier version of this
+    /// method used a fixed absolute timeout (10s) that didn't scale to large
+    /// files: a big file's send queue can legitimately take much longer than
+    /// any fixed timeout to drain, so the only correct condition for giving up
+    /// is "no progress for N seconds," not "N seconds have passed."
+    /// </remarks>
+    internal static async Task<bool> WaitForDrainOrStallAsync(
+        Func<ulong> getBufferedAmount,
+        TimeSpan pollInterval,
+        TimeSpan stallTimeout,
+        Func<TimeSpan, Task> delay,
+        Func<DateTimeOffset> utcNow)
+    {
+        var lastValue = getBufferedAmount();
+        var lastProgressAt = utcNow();
+
+        while (getBufferedAmount() > 0)
+        {
+            await delay(pollInterval);
+
+            var current = getBufferedAmount();
+            if (current < lastValue)
+            {
+                lastValue = current;
+                lastProgressAt = utcNow();
+            }
+            else if (utcNow() - lastProgressAt > stallTimeout)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
