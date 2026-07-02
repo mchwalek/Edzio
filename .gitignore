@@ -434,6 +434,7 @@ PROGRESS.md
 DECISIONS.md
 docs/superpowers/
 docs/debug/
+infra/main.json
 
 # Local git worktrees used for isolated feature work
 .worktrees/
