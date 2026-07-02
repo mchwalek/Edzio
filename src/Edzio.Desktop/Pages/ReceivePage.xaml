@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             xmlns:converters="clr-namespace:Edzio.Desktop.Converters"
+             x:Class="Edzio.Desktop.Pages.ReceivePage"
+             x:DataType="vm:ReceiveViewModel"
+             Title="Receive">
+    <ContentPage.Resources>
+        <converters:InverseBoolConverter x:Key="InverseBool" />
+    </ContentPage.Resources>
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="16" VerticalOptions="Center">
+            <Label Text="Receive Files" FontSize="24" FontAttributes="Bold" HorizontalOptions="Center" />
+
+            <!-- Pairing code display -->
+            <VerticalStackLayout IsVisible="{Binding ShowCode}" Spacing="8">
+                <Label Text="Share this code with the sender:" HorizontalOptions="Center" />
+                <Label Text="{Binding PairingCode}"
+                       FontSize="52" FontAttributes="Bold"
+                       HorizontalOptions="Center" TextColor="#0078D4"
+                       CharacterSpacing="6" />
+                <Label Text="{Binding StatusMessage}" TextColor="#666" HorizontalOptions="Center" />
+            </VerticalStackLayout>
+
+            <!-- Progress display -->
+            <VerticalStackLayout IsVisible="{Binding ShowProgress}" Spacing="8">
+                <Label Text="{Binding StatusMessage}" HorizontalOptions="Center" />
+                <ProgressBar Progress="{Binding ProgressValue}" />
+                <Label Text="{Binding ProgressValue, StringFormat='{0:P0}'}"
+                       HorizontalOptions="Center" TextColor="#666" />
+            </VerticalStackLayout>
+
+            <!-- Complete display -->
+            <VerticalStackLayout IsVisible="{Binding IsComplete}" Spacing="12">
+                <Label Text="Transfer Complete!" FontSize="22"
+                       HorizontalOptions="Center" TextColor="#107C10" FontAttributes="Bold" />
+                <Label Text="{Binding StatusMessage}" HorizontalOptions="Center" />
+                <Button Text="Open Downloads Folder" Clicked="OnOpenFolderClicked"
+                        BackgroundColor="#0078D4" TextColor="White" CornerRadius="8" />
+            </VerticalStackLayout>
+
+            <!-- Initial status (before code appears) -->
+            <Label Text="{Binding StatusMessage}"
+                   IsVisible="{Binding ShowCode, Converter={StaticResource InverseBool}}"
+                   HorizontalOptions="Center" TextColor="#666" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

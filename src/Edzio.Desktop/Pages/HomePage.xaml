@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             xmlns:discovery="clr-namespace:Edzio.Core.Discovery;assembly=Edzio.Core"
+             x:Class="Edzio.Desktop.Pages.HomePage"
+             x:DataType="vm:HomeViewModel"
+             Title="Edzio">
+    <VerticalStackLayout Padding="24" Spacing="16">
+        <Label Text="Edzio" FontSize="32" FontAttributes="Bold" HorizontalOptions="Center" />
+        <Button Text="Receive" Command="{Binding ReceiveCommand}"
+                FontSize="18" HeightRequest="56" BackgroundColor="#0078D4" TextColor="White" CornerRadius="8" />
+        <Button Text="Send via code" Command="{Binding SendCommand}"
+                FontSize="18" HeightRequest="56" BackgroundColor="#107C10" TextColor="White" CornerRadius="8" />
+        <Label Text="Nearby Devices" FontSize="16" FontAttributes="Bold" Margin="0,16,0,4" />
+        <CollectionView ItemsSource="{Binding NearbyPeers}" EmptyView="No devices found on this network.">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="discovery:LocalPeer">
+                    <Grid Padding="8,4" ColumnDefinitions="*,Auto" BackgroundColor="#F5F5F5" Margin="0,2">
+                        <Label Grid.Column="0" Text="{Binding DisplayName}" VerticalOptions="Center" />
+                        <Button Grid.Column="1" Text="Send"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:HomeViewModel}}, Path=SendToLocalPeerCommand}"
+                                CommandParameter="{Binding .}"
+                                BackgroundColor="#107C10" TextColor="White" Padding="12,4" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Button Text="Settings" Command="{Binding SettingsCommand}"
+                HorizontalOptions="End" BackgroundColor="Transparent" TextColor="#666666" />
+    </VerticalStackLayout>
+</ContentPage>

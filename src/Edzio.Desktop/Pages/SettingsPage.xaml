@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             x:Class="Edzio.Desktop.Pages.SettingsPage"
+             x:DataType="vm:SettingsViewModel"
+             Title="Settings">
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="10">
+            <Label Text="Signaling Server" FontAttributes="Bold" FontSize="16" />
+            <Label Text="URL used for peer discovery (pairing codes)." FontSize="12" TextColor="#666" />
+            <Entry Text="{Binding SignalingServerUrl}" Placeholder="https://signal.edzio.app" />
+            <Button Text="Reset to Default" Command="{Binding ResetCommand}"
+                    BackgroundColor="#888" TextColor="White" CornerRadius="6" />
+
+            <BoxView HeightRequest="1" BackgroundColor="#DDD" Margin="0,12" />
+
+            <Label Text="TURN Relay (Optional)" FontAttributes="Bold" FontSize="16" />
+            <Label Text="Leave blank to use direct P2P only. Configure a TURN server for connectivity behind strict firewalls."
+                   FontSize="12" TextColor="#666" />
+            <Label Text="TURN Server URL" />
+            <Entry Text="{Binding TurnServerUrl}" Placeholder="turn:relay.example.com:3478" />
+            <Label Text="Username" />
+            <Entry Text="{Binding TurnUsername}" Placeholder="username" />
+            <Label Text="Credential" />
+            <Entry Text="{Binding TurnCredential}" Placeholder="password" IsPassword="True" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             x:Class="Edzio.Desktop.Pages.SendPage"
+             x:DataType="vm:SendViewModel"
+             Title="Send">
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="12">
+            <Label Text="Send Files" FontSize="24" FontAttributes="Bold" />
+
+            <Button Text="Pick Files" Command="{Binding PickFilesCommand}"
+                    BackgroundColor="#0078D4" TextColor="White" CornerRadius="8" />
+
+            <CollectionView ItemsSource="{Binding SelectedPaths}"
+                            EmptyView="No files selected yet."
+                            MaximumHeightRequest="150">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                        <Label Text="{Binding .}" FontSize="12" TextColor="#444"
+                               Padding="4,2" LineBreakMode="MiddleTruncation" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <BoxView HeightRequest="1" BackgroundColor="#DDD" Margin="0,8" />
+
+            <Label Text="Receiver's code:" FontAttributes="Bold" />
+            <Entry Text="{Binding PairingCode}"
+                   Placeholder="Enter code from receiver (e.g. MAPLE7)"
+                   FontSize="22" FontAttributes="Bold"
+                   MaxLength="6" />
+
+            <Button Text="Send Now" Command="{Binding SendCommand}"
+                    BackgroundColor="#107C10" TextColor="White"
+                    HeightRequest="52" CornerRadius="8" />
+
+            <Label Text="{Binding StatusMessage}" TextColor="#444" />
+
+            <ProgressBar Progress="{Binding ProgressValue}"
+                         IsVisible="{Binding ShowProgress}" />
+
+            <Label Text="Transfer complete!" FontSize="18" TextColor="#107C10"
+                   IsVisible="{Binding IsComplete}" HorizontalOptions="Center" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

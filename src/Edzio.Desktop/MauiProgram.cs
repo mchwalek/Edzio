@@ -1,0 +1,54 @@
+﻿using Edzio.Core.Discovery;
+using Edzio.Core.Persistence;
+using Edzio.Core.Signaling;
+using Edzio.Desktop.Pages;
+using Edzio.Desktop.ViewModels;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace Edzio.Desktop;
+
+public static class MauiProgram
+{
+    public static MauiApp CreateMauiApp()
+    {
+        var builder = MauiApp.CreateBuilder();
+        builder
+            .UseMauiApp<App>()
+            .ConfigureFonts(fonts =>
+            {
+                fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+            });
+
+#if DEBUG
+        builder.Logging.AddDebug();
+#endif
+
+        // Database
+        var dbPath = Path.Combine(FileSystem.AppDataDirectory, "transfers.db");
+        builder.Services.AddDbContext<TransferDbContext>(o => o.UseSqlite($"DataSource={dbPath}"));
+        builder.Services.AddScoped<TransferRepository>();
+
+        // Core services
+        builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
+        builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
+
+        // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)
+        builder.Services.AddSingleton<SettingsViewModel>();
+        builder.Services.AddTransient<HomeViewModel>();
+        builder.Services.AddTransient<SendViewModel>();
+        builder.Services.AddTransient<ReceiveViewModel>();
+
+        // Shell (singleton — only one instance ever needed)
+        builder.Services.AddSingleton<AppShell>();
+
+        // Pages
+        builder.Services.AddTransient<HomePage>();
+        builder.Services.AddTransient<SendPage>();
+        builder.Services.AddTransient<ReceivePage>();
+        builder.Services.AddTransient<SettingsPage>();
+
+        return builder.Build();
+    }
+}

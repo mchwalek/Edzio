@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Edzio.Core/Edzio.Core.csproj" />
+    <Project Path="src/Edzio.Desktop/Edzio.Desktop.csproj" />
+    <Project Path="src/Edzio.SignalingServer/Edzio.SignalingServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Edzio.Core.Tests/Edzio.Core.Tests.csproj" />
+    <Project Path="tests/Edzio.SignalingServer.Tests/Edzio.SignalingServer.Tests.csproj" />
+  </Folder>
+</Solution>
