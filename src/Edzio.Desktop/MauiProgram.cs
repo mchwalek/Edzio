@@ -22,6 +22,9 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
+        // File logger — always on, captures SIPSorcery internals too
+        builder.Logging.AddProvider(new EdzioLoggerProvider());
+        builder.Logging.SetMinimumLevel(LogLevel.Debug);
 #if DEBUG
         builder.Logging.AddDebug();
 #endif

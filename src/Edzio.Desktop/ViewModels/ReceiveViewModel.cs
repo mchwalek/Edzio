@@ -2,6 +2,8 @@ using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
 using Edzio.Core.Transfer;
 using Edzio.Core.WebRtc;
+using Edzio.Desktop.Services;
+using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 
 namespace Edzio.Desktop.ViewModels;
@@ -11,6 +13,7 @@ public class ReceiveViewModel : BaseViewModel
     private readonly ISignalingClient _signaling;
     private readonly TransferRepository _repo;
     private readonly SettingsViewModel _settings;
+    private readonly ILogger<WebRtcChannel> _webRtcLogger;
 
     private string _pairingCode = "";
     private string _statusMessage = "Starting...";
@@ -28,19 +31,25 @@ public class ReceiveViewModel : BaseViewModel
     public bool IsComplete { get => _isComplete; private set => SetProperty(ref _isComplete, value); }
     public string? CompletedPath { get => _completedPath; private set => SetProperty(ref _completedPath, value); }
 
-    public ReceiveViewModel(ISignalingClient signaling, TransferRepository repo, SettingsViewModel settings)
+    public ReceiveViewModel(ISignalingClient signaling, TransferRepository repo,
+        SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
     {
         _signaling = signaling;
         _repo = repo;
         _settings = settings;
+        _webRtcLogger = webRtcLogger;
     }
 
     public async Task StartAsync(CancellationToken ct = default)
     {
         try
         {
+            EdzioLog.Info("ReceiveVM", $"Connecting to signaling server: {_settings.SignalingServerUrl}");
             await _signaling.ConnectAsync(_settings.SignalingServerUrl, ct);
+            EdzioLog.Info("ReceiveVM", "Connected to signaling server");
+
             PairingCode = await _signaling.RegisterAsReceiverAsync(ct);
+            EdzioLog.Info("ReceiveVM", $"Registered as receiver, code: {PairingCode}");
             ShowCode = true;
             StatusMessage = "Share this code with the sender";
 
@@ -50,6 +59,7 @@ public class ReceiveViewModel : BaseViewModel
             try { await peerJoinedTcs.Task.WaitAsync(ct); }
             finally { _signaling.PeerJoined -= handler; }
 
+            EdzioLog.Info("ReceiveVM", "PeerJoined received — sender has connected to signaling server");
             ShowCode = false;
             ShowProgress = true;
             StatusMessage = "Sender connected! Establishing connection...";
@@ -69,8 +79,10 @@ public class ReceiveViewModel : BaseViewModel
                 });
             }
 
-            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Answerer);
+            EdzioLog.Info("ReceiveVM", "Creating WebRtcChannel (Answerer)...");
+            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Answerer, _webRtcLogger);
             await channel.ConnectAsync(ct);
+            EdzioLog.Info("ReceiveVM", "ConnectAsync complete — waiting for data channel to open via WaitForOpenAsync...");
 
             var outputRoot = Path.Combine(FileSystem.AppDataDirectory, "Received");
             Directory.CreateDirectory(outputRoot);

@@ -4,6 +4,8 @@ using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
 using Edzio.Core.Transfer;
 using Edzio.Core.WebRtc;
+using Edzio.Desktop.Services;
+using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 
 namespace Edzio.Desktop.ViewModels;
@@ -16,6 +18,7 @@ public class SendViewModel : BaseViewModel
     private readonly ISignalingClient _signaling;
     private readonly TransferRepository _repo;
     private readonly SettingsViewModel _settings;
+    private readonly ILogger<WebRtcChannel> _webRtcLogger;
 
     public ObservableCollection<string> SelectedPaths { get; } = new();
 
@@ -39,11 +42,13 @@ public class SendViewModel : BaseViewModel
     public ICommand PickFilesCommand { get; }
     public ICommand SendCommand { get; }
 
-    public SendViewModel(ISignalingClient signaling, TransferRepository repo, SettingsViewModel settings)
+    public SendViewModel(ISignalingClient signaling, TransferRepository repo,
+        SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
     {
         _signaling = signaling;
         _repo = repo;
         _settings = settings;
+        _webRtcLogger = webRtcLogger;
         Title = "Send";
         PickFilesCommand = new Command(async () => await PickFilesAsync());
         SendCommand = new Command(async () => await SendAsync(), () => SelectedPaths.Count > 0 && !IsBusy);
@@ -67,18 +72,26 @@ public class SendViewModel : BaseViewModel
             StatusMessage = "Building transfer manifest...";
 
             var sessionId = Guid.NewGuid().ToString();
+            EdzioLog.Info("SendVM", $"Building manifest for {SelectedPaths.Count} path(s)");
             var manifest = await TransferManifestBuilder.BuildAsync(sessionId, SelectedPaths);
+            EdzioLog.Info("SendVM", $"Manifest built: {manifest.Files.Count} file(s), {manifest.TotalBytes:N0} bytes");
 
             StatusMessage = "Connecting to signaling server...";
+            EdzioLog.Info("SendVM", $"Connecting to signaling server: {_settings.SignalingServerUrl}");
             await _signaling.ConnectAsync(_settings.SignalingServerUrl);
+            EdzioLog.Info("SendVM", "Connected to signaling server");
 
-            var joined = await _signaling.JoinAsSenderAsync(PairingCode.Trim().ToUpperInvariant());
+            var code = PairingCode.Trim().ToUpperInvariant();
+            EdzioLog.Info("SendVM", $"Joining as sender with code: {code}");
+            var joined = await _signaling.JoinAsSenderAsync(code);
             if (!joined)
             {
+                EdzioLog.Warn("SendVM", "JoinAsSender returned false — invalid or expired code");
                 StatusMessage = "Invalid or expired code. Please try again.";
                 IsBusy = false;
                 return;
             }
+            EdzioLog.Info("SendVM", "JoinAsSender succeeded — receiver is connected");
 
             StatusMessage = "Establishing direct connection...";
             var rtcConfig = new RTCConfiguration
@@ -93,8 +106,10 @@ public class SendViewModel : BaseViewModel
                     credential = _settings.TurnCredential
                 });
 
-            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Offerer);
+            EdzioLog.Info("SendVM", "Creating WebRtcChannel (Offerer)...");
+            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Offerer, _webRtcLogger);
             await channel.ConnectAsync();
+            EdzioLog.Info("SendVM", "ConnectAsync complete");
 
             var sourceRoot = Path.GetDirectoryName(SelectedPaths[0]) ?? SelectedPaths[0];
             var progress = new Progress<TransferProgress>(p =>
