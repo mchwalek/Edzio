@@ -7,6 +7,18 @@
              Title="Settings">
     <ScrollView>
         <VerticalStackLayout Padding="24" Spacing="10">
+            <Label Text="Download Location" FontAttributes="Bold" FontSize="16" />
+            <Label Text="Folder where received files are saved." FontSize="12" TextColor="#666" />
+            <Entry Text="{Binding DownloadLocation}" IsReadOnly="True" />
+            <HorizontalStackLayout Spacing="10">
+                <Button Text="Change..." Command="{Binding PickDownloadLocationCommand}"
+                        BackgroundColor="#0078D4" TextColor="White" CornerRadius="6" />
+                <Button Text="Reset to Default" Command="{Binding ResetDownloadLocationCommand}"
+                        BackgroundColor="#888" TextColor="White" CornerRadius="6" />
+            </HorizontalStackLayout>
+
+            <BoxView HeightRequest="1" BackgroundColor="#DDD" Margin="0,12" />
+
             <Label Text="Signaling Server" FontAttributes="Bold" FontSize="16" />
             <Label Text="URL used for peer discovery (pairing codes)." FontSize="12" TextColor="#666" />
             <Entry Text="{Binding SignalingServerUrl}" Placeholder="https://signal.edzio.app" />

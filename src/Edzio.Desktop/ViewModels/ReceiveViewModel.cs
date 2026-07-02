@@ -84,7 +84,7 @@ public class ReceiveViewModel : BaseViewModel
             await channel.ConnectAsync(ct);
             EdzioLog.Info("ReceiveVM", "ConnectAsync complete — waiting for data channel to open via WaitForOpenAsync...");
 
-            var outputRoot = Path.Combine(FileSystem.AppDataDirectory, "Received");
+            var outputRoot = _settings.DownloadLocation;
             Directory.CreateDirectory(outputRoot);
 
             var progress = new Progress<TransferProgress>(p =>

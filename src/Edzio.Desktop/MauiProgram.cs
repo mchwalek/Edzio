@@ -1,4 +1,6 @@
-﻿using Edzio.Core.Discovery;
+﻿using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Storage;
+using Edzio.Core.Discovery;
 using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
 using Edzio.Desktop.Pages;
@@ -16,6 +18,7 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
+            .UseMauiCommunityToolkit()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -30,7 +33,7 @@ public static class MauiProgram
 #endif
 
         // Database
-        var dbPath = Path.Combine(FileSystem.AppDataDirectory, "transfers.db");
+        var dbPath = AppPaths.DatabasePath;
         builder.Services.AddDbContext<TransferDbContext>(o => o.UseSqlite($"DataSource={dbPath}"));
         builder.Services.AddScoped<TransferRepository>();
 
@@ -38,6 +41,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
         builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
         builder.Services.AddSingleton<SignalingHealthMonitor>();
+        builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
 
         // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)
         builder.Services.AddSingleton<SettingsViewModel>();

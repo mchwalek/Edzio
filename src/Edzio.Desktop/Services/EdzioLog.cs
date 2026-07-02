@@ -10,8 +10,7 @@ namespace Edzio.Desktop.Services;
 public static class EdzioLog
 {
     public static readonly string LogPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Edzio", "logs", $"edzio-{DateTime.Now:yyyy-MM-dd}.log");
+        AppPaths.LogsDirectory, $"edzio-{DateTime.Now:yyyy-MM-dd}.log");
 
     private static readonly object _lock = new();
 
