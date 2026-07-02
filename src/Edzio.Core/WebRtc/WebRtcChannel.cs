@@ -49,42 +49,53 @@ public sealed class WebRtcChannel : ITransferChannel
     public async Task ConnectAsync(CancellationToken ct = default)
     {
         Log($"[{_role}] ConnectAsync started");
-        _pc = new RTCPeerConnection(_rtcConfig);
 
-        // Log ICE + connection state transitions — critical for diagnosing hangs
-        _pc.oniceconnectionstatechange += state =>
-            Log($"[{_role}] ICE connection state → {state}");
-        _pc.onconnectionstatechange += state =>
-            Log($"[{_role}] Peer connection state → {state}");
-        _pc.onsignalingstatechange += () =>
-            Log($"[{_role}] Signaling state → {_pc?.signalingState}");
-        _pc.onicegatheringstatechange += state =>
-            Log($"[{_role}] ICE gathering state → {state}");
+        // ── Subscribe to signaling events BEFORE constructing RTCPeerConnection ──
+        // RTCPeerConnection() can block for hundreds of milliseconds on the first
+        // call (ICE agent setup, DTLS certificate generation). On a fast LAN the
+        // remote peer can deliver the offer, answer, or ICE candidates during that
+        // window. Subscribing here — before the ctor — ensures no messages are lost
+        // while the peer connection is initialising.
+        // (Root cause of production hang in session 20:38: offer arrived 402 ms into
+        // ConnectAsync; OfferReceived subscription wasn't in place until 646 ms in.)
 
-        // ── ICE candidate queue ─────────────────────────────────────────
-        // Remote candidates may arrive before setRemoteDescription is called.
-        // Buffer them and flush once the remote description is in place.
+        // ICE candidate buffer — initialised here so the IceCandidateReceived
+        // handler below can reference it safely before _pc is constructed.
+        // _pc?.addIceCandidate uses a null-conditional, so buffering works even
+        // when _pc is not yet assigned.
         var pendingCandidates = new List<RTCIceCandidateInit>();
         var remoteDescSet = false;
         var candidateLock = new object();
         var localCandidateCount = 0;
         var remoteCandidateCount = 0;
 
-        // ── Forward our ICE candidates to the remote peer ───────────────
-        _pc.onicecandidate += candidate =>
-        {
-            localCandidateCount++;
-            Log($"[{_role}] Local ICE candidate #{localCandidateCount}: {candidate.candidate}");
-            var json = JsonSerializer.Serialize(new
-            {
-                candidate = candidate.candidate,
-                sdpMid = candidate.sdpMid,
-                sdpMLineIndex = candidate.sdpMLineIndex
-            });
-            _ = _signaling.SendIceCandidateAsync(json);
-        };
+        // Role-specific TCS: whichever side we are, subscribe immediately so the
+        // first SignalR message is never dropped.
+        TaskCompletionSource<string> answerTcs = null!;
+        TaskCompletionSource<string> offerTcs  = null!;
 
-        // ── Buffer remote ICE candidates until remote description is set ─
+        if (_role == WebRtcRole.Offerer)
+        {
+            answerTcs = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _signaling.AnswerReceived += (_, sdp) =>
+            {
+                Log($"[{_role}] Answer received from signaling");
+                answerTcs.TrySetResult(sdp);
+            };
+        }
+        else
+        {
+            offerTcs = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _signaling.OfferReceived += (_, sdp) =>
+            {
+                Log($"[{_role}] Offer received from signaling");
+                offerTcs.TrySetResult(sdp);
+            };
+        }
+
+        // ── Buffer remote ICE candidates until remote description is set ─────
         _signaling.IceCandidateReceived += (_, json) =>
         {
             try
@@ -121,7 +132,34 @@ public sealed class WebRtcChannel : ITransferChannel
             catch (Exception ex) { Log($"[{_role}] Malformed ICE candidate JSON: {ex.Message}"); }
         };
 
-        // ── Apply remote description and flush buffered candidates ───────
+        // ── Now construct the peer connection ────────────────────────────────
+        _pc = new RTCPeerConnection(_rtcConfig);
+
+        // Log ICE + connection state transitions — critical for diagnosing hangs
+        _pc.oniceconnectionstatechange += state =>
+            Log($"[{_role}] ICE connection state → {state}");
+        _pc.onconnectionstatechange += state =>
+            Log($"[{_role}] Peer connection state → {state}");
+        _pc.onsignalingstatechange += () =>
+            Log($"[{_role}] Signaling state → {_pc?.signalingState}");
+        _pc.onicegatheringstatechange += state =>
+            Log($"[{_role}] ICE gathering state → {state}");
+
+        // ── Forward our ICE candidates to the remote peer ───────────────────
+        _pc.onicecandidate += candidate =>
+        {
+            localCandidateCount++;
+            Log($"[{_role}] Local ICE candidate #{localCandidateCount}: {candidate.candidate}");
+            var json = JsonSerializer.Serialize(new
+            {
+                candidate = candidate.candidate,
+                sdpMid = candidate.sdpMid,
+                sdpMLineIndex = candidate.sdpMLineIndex
+            });
+            _ = _signaling.SendIceCandidateAsync(json);
+        };
+
+        // ── Apply remote description and flush buffered candidates ───────────
         void ApplyRemoteDescription(RTCSessionDescriptionInit desc)
         {
             Log($"[{_role}] Setting remote description (type={desc.type})");
@@ -136,7 +174,7 @@ public sealed class WebRtcChannel : ITransferChannel
             }
         }
 
-        // ── Helper to wire a data channel once we have it ───────────────
+        // ── Helper to wire a data channel once we have it ───────────────────
         void WireDataChannel(RTCDataChannel dc)
         {
             _dataChannel = dc;
@@ -162,17 +200,6 @@ public sealed class WebRtcChannel : ITransferChannel
 
         if (_role == WebRtcRole.Offerer)
         {
-            // Subscribe to AnswerReceived BEFORE sending the offer.
-            // On a fast LAN the answer can arrive before control returns from
-            // SendOfferAsync — if we subscribed after, we'd miss it entirely.
-            var answerTcs = new TaskCompletionSource<string>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            _signaling.AnswerReceived += (_, sdp) =>
-            {
-                Log($"[{_role}] Answer received from signaling");
-                answerTcs.TrySetResult(sdp);
-            };
-
             Log($"[{_role}] Creating data channel...");
             var dc = await _pc.createDataChannel("edzio");
             WireDataChannel(dc);
@@ -200,15 +227,6 @@ public sealed class WebRtcChannel : ITransferChannel
             {
                 Log($"[{_role}] Data channel received from offerer");
                 WireDataChannel(dc);
-            };
-
-            // Subscribe to OfferReceived before anything else — same race applies.
-            var offerTcs = new TaskCompletionSource<string>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            _signaling.OfferReceived += (_, sdp) =>
-            {
-                Log($"[{_role}] Offer received from signaling");
-                offerTcs.TrySetResult(sdp);
             };
 
             Log($"[{_role}] Waiting for offer from offerer...");
