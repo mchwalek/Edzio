@@ -8,6 +8,14 @@ public static class TransferSession
 {
     // ── Wire-format helpers ──────────────────────────────────────────────
 
+    /// <summary>
+    /// Size in bytes of the Chunk message header: 1-byte <see cref="TransferMessageType"/>
+    /// + 4-byte LE fileIndex + 4-byte LE chunkIndex. <see cref="ChunkEngine.ChunkSize"/> is
+    /// derived from this so that a full-size chunk message never exceeds the WebRTC data
+    /// channel's maximum message size.
+    /// </summary>
+    public const int ChunkHeaderSize = 1 + 4 + 4;
+
     /// <summary>Builds a Manifest message: [0x01][UTF-8 JSON]</summary>
     private static byte[] BuildManifestMessage(TransferManifest manifest)
     {
@@ -23,11 +31,11 @@ public static class TransferSession
     /// </summary>
     private static byte[] BuildChunkMessage(int fileIndex, int chunkIndex, byte[] data)
     {
-        var msg = new byte[1 + 4 + 4 + data.Length];
+        var msg = new byte[ChunkHeaderSize + data.Length];
         msg[0]  = (byte)TransferMessageType.Chunk;
         WriteInt32LE(msg, 1, fileIndex);
         WriteInt32LE(msg, 5, chunkIndex);
-        data.CopyTo(msg, 9);
+        data.CopyTo(msg, ChunkHeaderSize);
         return msg;
     }
 

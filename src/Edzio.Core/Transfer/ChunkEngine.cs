@@ -6,7 +6,18 @@ namespace Edzio.Core.Transfer;
 
 public static class ChunkEngine
 {
-    public const int ChunkSize = 262144; // 256 KB
+    /// <summary>
+    /// Maximum number of file-data bytes per chunk (~256 KB).
+    /// </summary>
+    /// <remarks>
+    /// Kept <see cref="TransferSession.ChunkHeaderSize"/> bytes below 262144 — SIPSorcery's
+    /// fixed, non-configurable SCTP data channel maximum message size
+    /// (<c>RTCSctpTransport.SCTP_DEFAULT_MAX_MESSAGE_SIZE</c>) — so that a full-size Chunk
+    /// message (header + data) never exceeds the transport's hard limit. Raising this constant
+    /// without also accounting for the header will cause sends to fail with
+    /// "exceeded the maximum allowed message size".
+    /// </remarks>
+    public const int ChunkSize = 262144 - TransferSession.ChunkHeaderSize; // 262135 bytes
 
     public static async Task<FileEntry> BuildFileEntryAsync(string fullPath, string relativePath)
     {

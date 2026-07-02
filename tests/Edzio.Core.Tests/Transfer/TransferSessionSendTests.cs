@@ -129,7 +129,7 @@ file static class TempFiles
         // Each chunk is ChunkEngine.ChunkSize bytes; for tests use smaller data
         // by writing exactly chunkCount * 16 bytes (well under one chunk — single chunk result).
         // For multi-chunk tests, write ChunkEngine.ChunkSize * chunkCount bytes.
-        const int chunkSize = 262144; // matches ChunkEngine.ChunkSize
+        const int chunkSize = ChunkEngine.ChunkSize;
         var content = new byte[chunkSize * chunkCount];
         new Random(42).NextBytes(content);
 

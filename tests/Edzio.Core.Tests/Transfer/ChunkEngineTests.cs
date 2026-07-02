@@ -69,6 +69,21 @@ public class ChunkEngineTests : IDisposable
     }
 
     [Fact]
+    public void ChunkSize_PlusHeader_DoesNotExceedSctpMaxMessageSize()
+    {
+        // SIPSorcery's RTCSctpTransport.SCTP_DEFAULT_MAX_MESSAGE_SIZE is a fixed,
+        // non-configurable 262144-byte cap on RTCDataChannel.send(). A full-size
+        // Chunk message (header + data) must stay within that limit, or sends fail
+        // with "exceeded the maximum allowed message size" (see chunk-size-exceeds-sctp-limit
+        // debug investigation).
+        const int sctpMaxMessageSize = 262144;
+
+        var fullChunkMessageSize = TransferSession.ChunkHeaderSize + ChunkEngine.ChunkSize;
+
+        fullChunkMessageSize.Should().BeLessThanOrEqualTo(sctpMaxMessageSize);
+    }
+
+    [Fact]
     public async Task WriteChunkAsync_ThenAssemble_ProducesOriginalFile()
     {
         var original = new byte[] { 10, 20, 30, 40, 50 };
