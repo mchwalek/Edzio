@@ -2,6 +2,7 @@
 using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
 using Edzio.Desktop.Pages;
+using Edzio.Desktop.Services;
 using Edzio.Desktop.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public static class MauiProgram
         // Core services
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
         builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
+        builder.Services.AddSingleton<SignalingHealthMonitor>();
 
         // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)
         builder.Services.AddSingleton<SettingsViewModel>();
