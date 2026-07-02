@@ -13,6 +13,18 @@ namespace Edzio.Core.WebRtc;
 /// </summary>
 public sealed class WebRtcChannel : ITransferChannel
 {
+    /// <summary>
+    /// Maximum time to wait for the outbound SCTP send queue to drain before
+    /// forcibly closing the connection in <see cref="DisposeAsync"/>.
+    /// </summary>
+    private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Extra grace period after <see cref="RTCDataChannel.bufferedAmount"/> reaches
+    /// zero, to allow the final fragment(s) a moment to actually leave the socket.
+    /// </summary>
+    private static readonly TimeSpan FlushGracePeriod = TimeSpan.FromMilliseconds(250);
+
     private readonly RTCConfiguration _rtcConfig;
     private readonly ISignalingClient _signaling;
     private readonly WebRtcRole _role;
@@ -139,7 +151,21 @@ public sealed class WebRtcChannel : ITransferChannel
         _pc.oniceconnectionstatechange += state =>
             Log($"[{_role}] ICE connection state → {state}");
         _pc.onconnectionstatechange += state =>
+        {
             Log($"[{_role}] Peer connection state → {state}");
+
+            // If the connection fails outright (as opposed to a normal close
+            // triggered by our own DisposeAsync after a successful transfer),
+            // unblock any pending WaitForOpenAsync/ReceiveAsync/SendAsync calls
+            // with a clear error instead of leaving them hanging forever.
+            if (state == RTCPeerConnectionState.failed)
+            {
+                var ex = new TransferException(
+                    $"WebRTC connection failed (peer connection state: {state}).");
+                _channelOpen.TrySetException(ex);
+                _incoming.Writer.TryComplete(ex);
+            }
+        };
         _pc.onsignalingstatechange += () =>
             Log($"[{_role}] Signaling state → {_pc?.signalingState}");
         _pc.onicegatheringstatechange += state =>
@@ -263,11 +289,52 @@ public sealed class WebRtcChannel : ITransferChannel
         => _channelOpen.Task.WaitAsync(ct);
 
     /// <inheritdoc/>
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        await FlushOutboundDataAsync();
+
         _pc?.close();
         _pc?.Dispose();
         _incoming.Writer.TryComplete();
-        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Waits for the SCTP association's outbound send queue to drain before the
+    /// caller closes the connection.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RTCDataChannel.send(byte[])"/> only enqueues data on the local
+    /// SCTP association for later asynchronous transmission — it does not block
+    /// until the data is actually on the wire. Closing the peer connection
+    /// immediately after the last <c>send()</c> call (e.g. via <c>await using</c>
+    /// right after <see cref="Transfer.TransferSession.SendAsync"/> returns)
+    /// aborts the association before large, multi-packet payloads (like a
+    /// 256 KB chunk) have any realistic chance of being transmitted, silently
+    /// dropping them and leaving the receiver waiting forever. Waiting for
+    /// <see cref="RTCDataChannel.bufferedAmount"/> to reach zero — the standard
+    /// WebRTC-recommended check before closing a data channel — ensures the send
+    /// queue has actually been handed off to the transport first.
+    /// </remarks>
+    private async Task FlushOutboundDataAsync()
+    {
+        if (_dataChannel is null || _dataChannel.readyState != RTCDataChannelState.open)
+            return;
+
+        var deadline = DateTime.UtcNow + FlushTimeout;
+        while (_dataChannel.bufferedAmount > 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+
+        if (_dataChannel.bufferedAmount > 0)
+        {
+            Log($"[{_role}] Timed out after {FlushTimeout.TotalSeconds}s waiting for outbound data " +
+                $"to flush ({_dataChannel.bufferedAmount} bytes still buffered) — closing anyway.");
+        }
+        else
+        {
+            // Give the last fragment(s) a brief moment to actually leave the socket.
+            await Task.Delay(FlushGracePeriod);
+        }
     }
 }

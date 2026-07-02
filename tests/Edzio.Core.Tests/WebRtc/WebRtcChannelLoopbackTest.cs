@@ -108,6 +108,55 @@ public class WebRtcChannelLoopbackTest
     }
 
     /// <summary>
+    /// Regression test for the "sender claims complete but receiver never gets
+    /// the data" bug: SCTP <c>send()</c> only enqueues data for later
+    /// asynchronous transmission. Disposing the channel (which calls
+    /// <c>_pc.close()</c>) immediately after the last <c>send()</c> call, with
+    /// no wait for the outbound SCTP send buffer to drain, aborts the
+    /// association before a large (multi-packet) payload has actually been
+    /// transmitted — so the receiver never gets it, even though the sender's
+    /// local <c>send()</c> call "succeeded".
+    ///
+    /// This test sends a large (~256 KB, several-packet) payload and disposes
+    /// the sender's channel immediately afterward (mirroring the production
+    /// `await using` pattern in SendViewModel/TransferSession), then asserts
+    /// the receiver still gets the full, correct payload.
+    /// </summary>
+    [Fact(Timeout = 30000)]
+    public async Task SendAsync_LargePayload_ThenImmediateDispose_StillDeliversToReceiver()
+    {
+        var paired = new PairedFakeSignaling();
+        var config = new RTCConfiguration(); // host candidates only — no STUN needed
+
+        var offererChannel = new WebRtcChannel(config, paired.Offerer, WebRtcRole.Offerer);
+        await using var answererChannel = new WebRtcChannel(config, paired.Answerer, WebRtcRole.Answerer);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var answererConnectTask = answererChannel.ConnectAsync(cts.Token);
+        var offererConnectTask  = offererChannel.ConnectAsync(cts.Token);
+        await Task.WhenAll(offererConnectTask, answererConnectTask);
+
+        await Task.WhenAll(
+            offererChannel.WaitForOpenAsync(cts.Token),
+            answererChannel.WaitForOpenAsync(cts.Token));
+
+        // A large, deterministic payload — big enough to require SCTP
+        // fragmentation across many UDP packets (like a real ChunkEngine chunk).
+        var message = new byte[262135];
+        new Random(42).NextBytes(message);
+
+        await offererChannel.SendAsync(message, cts.Token);
+
+        // Mirrors the production pattern: dispose the sender's channel
+        // immediately after the last send, with no explicit wait.
+        await offererChannel.DisposeAsync();
+
+        var received = await answererChannel.ReceiveAsync(cts.Token);
+        received.Should().Equal(message);
+    }
+
+    /// <summary>
     /// Integration test: full SDP exchange + ICE negotiation between two
     /// in-process channels. Requires real network interfaces (host ICE candidates).
     /// Run manually — not in CI.
