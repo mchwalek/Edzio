@@ -430,5 +430,10 @@ FodyWeavers.xsd
 
 # Edzio — never commit these
 progress.md
+PROGRESS.md
+DECISIONS.md
 docs/superpowers/
 docs/debug/
+
+# Local git worktrees used for isolated feature work
+.worktrees/
