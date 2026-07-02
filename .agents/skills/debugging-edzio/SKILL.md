@@ -104,6 +104,33 @@ Theory status values: `Pending` · `Confirmed` · `Refuted`
 *(Fill in when resolved — file, line numbers, description of the change.)*
 ```
 
+## Edzio Log Files
+
+**Always read the logs before forming any theory.** The app writes a detailed rolling log to:
+
+```
+%LOCALAPPDATA%\Edzio\logs\edzio-YYYY-MM-DD.log
+```
+
+The log captures every step of the WebRTC handshake, ICE candidate exchange, signaling events, and state transitions. SIPSorcery's own internal logs (ICE connectivity checks, DTLS, SCTP) also go there via `SIPSorcery.LogFactory`.
+
+When debugging a P2P connection issue, open the log on **both** machines and check in this order:
+
+1. Last `[Offerer]` and `[Answerer]` lines — tell you exactly which step hung
+2. Whether ICE candidates were gathered (`Local ICE candidate #N: ...`)
+3. Whether candidates were exchanged (`← IceCandidateReceived`, `→ SendIceCandidate`)
+4. ICE connection state sequence: `new → checking → connected` (stuck at `checking` = firewall/NAT issue)
+5. Whether `Data channel OPEN` appears on **both** sides (missing on the answerer = the `ondatachannel`/`onopen` race)
+
+To add new log points anywhere in the Desktop project without DI, use the `EdzioLog` static class:
+
+```csharp
+// src/Edzio.Desktop/Services/EdzioLog.cs
+EdzioLog.Info("Component", "message");
+```
+
+Record the log file paths in the **Log / Artifact Locations** section of the PROGRESS.md at the start of every investigation.
+
 ## Step 1–4 — Run systematic-debugging
 
 **REQUIRED:** Load and follow `superpowers:systematic-debugging` for all four phases (Root Cause → Pattern → Hypothesis → Implementation).

@@ -89,22 +89,7 @@ dotnet publish src/Edzio.Desktop/... -f net10.0-windows10.0.19041.0 -r win-x64 -
 
 ## Debugging
 
-**Always look at the log file first** before guessing. The app writes a detailed rolling log to:
-
-```
-%LOCALAPPDATA%\Edzio\logs\edzio-YYYY-MM-DD.log
-```
-
-The log captures every step of the WebRTC handshake, ICE candidate exchange, signaling events, and state transitions. SIPSorcery's own internal logs (ICE connectivity checks, DTLS, SCTP) also go there via `SIPSorcery.LogFactory`.
-
-When debugging a P2P connection issue:
-1. Open `%LOCALAPPDATA%\Edzio\logs\edzio-YYYY-MM-DD.log` on **both** machines
-2. Look for the last `[Offerer]` and `[Answerer]` log lines — they tell you exactly which step hung
-3. Check whether ICE candidates were gathered (`Local ICE candidate #N: ...`)
-4. Check whether candidates were exchanged (`← IceCandidateReceived`, `→ SendIceCandidate`)
-5. Check the ICE connection state sequence: `new → checking → connected` (hang at `checking` = firewall/NAT issue)
-
-The `EdzioLog` static class (`src/Edzio.Desktop/Services/EdzioLog.cs`) is available anywhere in the Desktop project without DI. Use `EdzioLog.Info("Component", "message")` to add new log points.
+For any bug, hang, crash, or unexpected behavior use the **`debugging-edzio`** skill. It covers log file locations, the WebRTC/ICE diagnostic checklist, and the persistent `docs/debug/<slug>/PROGRESS.md` workflow that lets investigations survive session boundaries.
 
 ## Code Conventions
 
