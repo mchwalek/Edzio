@@ -147,6 +147,17 @@ public sealed class WebRtcChannel : ITransferChannel
             };
             dc.onclose += () => Log($"[{_role}] Data channel closed");
             dc.onmessage += (_, _, data) => _incoming.Writer.TryWrite(data);
+
+            // On the answerer side, SIPSorcery fires ondatachannel only after the
+            // SCTP OPEN/ACK exchange completes — so the channel is already open by
+            // the time this callback runs. dc.onopen has already fired (or will never
+            // fire) before we subscribed, so we must resolve _channelOpen immediately
+            // when we detect the channel is already in the open state.
+            if (dc.readyState == RTCDataChannelState.open)
+            {
+                Log($"[{_role}] Data channel already OPEN on receipt — resolving immediately");
+                _channelOpen.TrySetResult();
+            }
         }
 
         if (_role == WebRtcRole.Offerer)

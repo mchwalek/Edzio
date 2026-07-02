@@ -32,6 +32,52 @@ public class PairedFakeSignaling
 public class WebRtcChannelLoopbackTest
 {
     /// <summary>
+    /// Regression test for the answerer-side WaitForOpenAsync hang.
+    ///
+    /// SIPSorcery fires <c>ondatachannel</c> only after the SCTP open procedure
+    /// completes, meaning the <see cref="RTCDataChannel"/> is already in the
+    /// <c>open</c> state when our callback runs. The previous code subscribed
+    /// <c>dc.onopen</c> inside that callback — which would never fire — so
+    /// <c>_channelOpen</c> was never resolved and <c>WaitForOpenAsync</c> hung
+    /// forever on the answerer side.
+    ///
+    /// This test requires real host ICE candidates (loopback). Run manually or
+    /// in environments with loopback network interfaces.
+    /// </summary>
+    [Fact(Timeout = 20000)]
+    public async Task WaitForOpenAsync_Answerer_CompletesAfterDataChannelIsReceived()
+    {
+        var paired = new PairedFakeSignaling();
+        var config = new RTCConfiguration(); // host candidates only — no STUN needed
+
+        await using var offererChannel  = new WebRtcChannel(config, paired.Offerer,  WebRtcRole.Offerer);
+        await using var answererChannel = new WebRtcChannel(config, paired.Answerer, WebRtcRole.Answerer);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        // Start the answerer first. Its ConnectAsync runs synchronously through all
+        // its subscriptions (OfferReceived, ondatachannel) before hitting its first
+        // await at line 204 and returning the incomplete task. The offerer task is
+        // started after, so when SendOfferAsync fires, the answerer is already
+        // subscribed and will receive it.
+        // (createDataChannel is synchronous pre-connection, so the offerer would
+        // otherwise send the offer before Task.WhenAll ever starts the answerer.)
+        var answererConnectTask = answererChannel.ConnectAsync(cts.Token);
+        var offererConnectTask  = offererChannel.ConnectAsync(cts.Token);
+        await Task.WhenAll(offererConnectTask, answererConnectTask);
+
+        // Both sides must resolve WaitForOpenAsync within a reasonable window.
+        // Before the fix, the answerer's _channelOpen TCS was never set because
+        // dc.onopen had already fired before WireDataChannel subscribed to it,
+        // so this assertion would time out on the answerer side.
+        Func<Task> open = () => Task.WhenAll(
+            offererChannel.WaitForOpenAsync(cts.Token),
+            answererChannel.WaitForOpenAsync(cts.Token));
+
+        await open.Should().CompleteWithinAsync(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
     /// End-to-end loopback: two WebRtcChannels in the same process exchange
     /// data over a real SIPSorcery RTCPeerConnection (host ICE candidates,
     /// no STUN required).
