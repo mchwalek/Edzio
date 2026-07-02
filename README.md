@@ -1,5 +1,7 @@
 # Edzio
 
+> **Early development.** Edzio is a young, actively-developed project and not yet production-ready. APIs, protocols, and behavior may change without notice, and you should expect bugs. Only the Windows desktop app and signaling server exist today; see [Current status](#current-status) below.
+
 P2P file sharing for non-technical users. Send arbitrarily large files and folders directly between devices — no accounts, no cloud storage, no need to know anyone's IP address.
 
 Inspired by [PairDrop](https://pairdrop.net/), with added support for resumable transfers and native desktop and mobile apps.
@@ -30,11 +32,11 @@ Transfers are chunked and resumable. If a connection drops mid-transfer, reconne
 
 ## Current status
 
-**Phase 1 complete:** Windows desktop app + signaling server.
+**Early development (Phase 1 in progress):** Windows desktop app + signaling server exist and can transfer files end-to-end, but the project is young, largely untested outside development, and still has rough edges (see recent fixes in `decisions.md`/commit history for examples of bugs found and fixed during early dogfooding). Not recommended for production or mission-critical use yet.
 
 | Platform | Status |
 |----------|--------|
-| Windows desktop | Done |
+| Windows desktop | Early / in development |
 | Android | Planned (Phase 2) |
 | Web (Blazor) | Planned (Phase 3) |
 | macOS | Planned (Phase 3) |
