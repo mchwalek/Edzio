@@ -29,8 +29,8 @@ public sealed class MdnsDiscovery : ILocalDiscovery {
 
         _sd.Advertise(profile);
         _sd.ServiceInstanceDiscovered += OnServiceInstanceDiscovered;
-        _sd.QueryAllServices();
-        _mdns.Start();
+        _mdns.Start();          // Must start before querying — Start() discovers network interfaces
+        _sd.QueryAllServices(); // and sets the max packet size; calling this first gives size=0
         return Task.CompletedTask;
     }
 
