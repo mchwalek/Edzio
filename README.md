@@ -115,7 +115,7 @@ dotnet run --project src/Edzio.SignalingServer
 
 ## Signaling server deployment
 
-The signaling server runs on Azure Container Apps (free tier, scale-to-zero, single instance — see `docs/superpowers/specs/2026-07-02-signaling-server-azure-deployment-design.md` for the full design). Deployment is automated via GitHub Actions.
+The signaling server runs on Azure Container Apps (free tier, scale-to-zero, single instance — pairing state is held in memory so it can't scale horizontally) in West Europe. Deployment is automated via GitHub Actions using OIDC-based authentication.
 
 **One-time setup (already done for the primary deployment, needed only if redeploying from scratch):**
 
