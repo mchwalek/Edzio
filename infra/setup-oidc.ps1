@@ -8,10 +8,11 @@
   Run this once, manually, after infra/main.bicep has created the resource
   group. It is safe to re-run: it looks up existing resources by name
   instead of creating duplicates. Prints the three values to add as GitHub
-  repository Variables (Settings > Secrets and variables > Actions >
-  Variables) — AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID.
-  These are identifiers, not secrets: OIDC means no password/secret ever
-  leaves Azure.
+  repository Secrets (Settings > Secrets and variables > Actions >
+  Secrets) — AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID.
+  Although OIDC means no password/secret ever leaves Azure, these are
+  stored as Secrets per Microsoft's recommended practice so they are
+  masked in logs and not exposed to fork pull requests.
 #>
 param(
     [string]$AppDisplayName = "edzio-signaling-deploy",
@@ -80,8 +81,8 @@ if ($existingAssignment.Count -eq 0) {
 }
 
 Write-Host ""
-Write-Host "=== Add these as GitHub repository Variables (not Secrets) ==="
-Write-Host "Settings > Secrets and variables > Actions > Variables tab, in $GitHubRepository"
+Write-Host "=== Add these as GitHub repository Secrets ==="
+Write-Host "Settings > Secrets and variables > Actions > Secrets tab, in $GitHubRepository"
 Write-Host "AZURE_CLIENT_ID       = $appId"
 Write-Host "AZURE_TENANT_ID       = $tenantId"
 Write-Host "AZURE_SUBSCRIPTION_ID = $subscriptionId"

@@ -42,7 +42,7 @@ The signaling server runs on Azure Container Apps and deploys automatically via 
 
 To provision the infrastructure from scratch (only needed once, or if the resource group is deleted):
 1. `az deployment sub create --location westeurope --template-file infra/main.bicep --parameters infra/main.parameters.json`
-2. Run `infra/setup-oidc.ps1` and add the printed values as GitHub repository Variables.
+2. Run `infra/setup-oidc.ps1` and add the printed values as GitHub repository Secrets.
 3. Push to `main` (or trigger the workflow manually) to deploy the first real image.
 
 The server exposes:
