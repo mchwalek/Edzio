@@ -21,7 +21,7 @@
 
             <Label Text="Signaling Server" FontAttributes="Bold" FontSize="16" />
             <Label Text="URL used for peer discovery (pairing codes)." FontSize="12" TextColor="#666" />
-            <Entry Text="{Binding SignalingServerUrl}" Placeholder="https://signal.edzio.app" />
+            <Entry Text="{Binding SignalingServerUrl}" Placeholder="https://edzio-signaling.kindmeadow-5769cf71.westeurope.azurecontainerapps.io" />
             <Button Text="Reset to Default" Command="{Binding ResetCommand}"
                     BackgroundColor="#888" TextColor="White" CornerRadius="6" />
 

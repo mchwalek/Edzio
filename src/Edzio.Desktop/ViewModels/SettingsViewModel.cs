@@ -11,7 +11,7 @@ public class SettingsViewModel : BaseViewModel
     private const string KeyTurnUser = "turnUser";
     private const string KeyTurnCred = "turnCred";
     private const string KeyDownloadLocation = "downloadLocation";
-    public const string DefaultSignalingUrl = "https://signal.edzio.app";
+    public const string DefaultSignalingUrl = "https://edzio-signaling.kindmeadow-5769cf71.westeurope.azurecontainerapps.io";
 
     private readonly IFolderPicker _folderPicker;
 
