@@ -115,16 +115,24 @@ dotnet run --project src/Edzio.SignalingServer
 
 ## Signaling server deployment
 
-The signaling server is a minimal ASP.NET Core app. Deploy to any host that supports .NET 10 (fly.io, Azure App Service, a VPS).
+The signaling server runs on Azure Container Apps (free tier, scale-to-zero, single instance — pairing state is held in memory so it can't scale horizontally) in West Europe. Deployment is automated via GitHub Actions using OIDC-based authentication.
 
-Once deployed, update the default URL in `SettingsViewModel.DefaultSignalingUrl`:
-```csharp
-public const string DefaultSignalingUrl = "https://your-server-url";
-```
+**One-time setup (already done for the primary deployment, needed only if redeploying from scratch):**
+
+1. Provision infrastructure: `az deployment sub create --location westeurope --template-file infra/main.bicep --parameters infra/main.parameters.json`
+2. Run `infra/setup-oidc.ps1` and add the three printed values as GitHub repository **Secrets** (Settings → Secrets and variables → Actions → Secrets): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+3. Push to `main` (or run the workflow manually via **Actions → Deploy Signaling Server → Run workflow**). The first successful run publishes `ghcr.io/mchwalek/edzio-signaling` — go to the package's settings on GitHub and change its visibility to **Public** so Azure Container Apps can pull it without credentials (only needed once, the first time the package is created).
+
+**Ongoing deployment:** any push to `main` touching `src/Edzio.SignalingServer/**` automatically builds, pushes to ghcr.io, and updates the live Container App — no manual steps.
 
 The server exposes:
-- `GET /health` — returns `"ok"` (used by the desktop app's status indicator)
-- `WS /signaling` — SignalR hub for pairing and ICE relay
+- `GET /health` → `"ok"` (used by the desktop app's status indicator)
+- `WS /signaling` → SignalR hub for pairing and ICE relay
+
+After deploying, update the default URL in `SettingsViewModel.DefaultSignalingUrl`:
+```csharp
+public const string DefaultSignalingUrl = "https://edzio-signaling.kindmeadow-5769cf71.westeurope.azurecontainerapps.io";
+```
 
 ---
 

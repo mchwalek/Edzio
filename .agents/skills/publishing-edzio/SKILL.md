@@ -38,20 +38,18 @@ dotnet publish src/Edzio.Desktop/Edzio.Desktop.csproj `
 
 ## Signaling Server
 
-The signaling server is a standard ASP.NET Core app. Publish with:
+The signaling server runs on Azure Container Apps and deploys automatically via `.github/workflows/deploy-signaling-server.yml` on every push to `main` that touches `src/Edzio.SignalingServer/**`. No manual publish step is needed for routine changes.
 
-```powershell
-dotnet publish src/Edzio.SignalingServer/Edzio.SignalingServer.csproj `
-  -c Release -r linux-x64 --self-contained false
-```
-
-Deploy to fly.io, Azure App Service, or any host with .NET 10. After deploying:
-1. Update `SettingsViewModel.DefaultSignalingUrl` with the live URL
-2. Rebuild and republish the desktop app
+To provision the infrastructure from scratch (only needed once, or if the resource group is deleted):
+1. `az deployment sub create --location westeurope --template-file infra/main.bicep --parameters infra/main.parameters.json`
+2. Run `infra/setup-oidc.ps1` and add the printed values as GitHub repository Secrets.
+3. Push to `main` (or trigger the workflow manually) to deploy the first real image.
 
 The server exposes:
-- `GET /health` → `"ok"` (polled every 30s by the desktop app's status indicator)
-- `WS /signaling` → SignalR hub (listens on all interfaces: `0.0.0.0:5000`)
+- GET /health → "ok" (polled every 30s by the desktop app's status indicator)
+- WS /signaling → SignalR hub (single instance, scale-to-zero, listens on port 8080 inside the container)
+
+After deploying, update `SettingsViewModel.DefaultSignalingUrl` with the live Container App URL and republish the desktop app.
 
 ## Future platforms
 

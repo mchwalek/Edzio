@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.worktrees/
+.vs/
+docs/
+tests/
+src/Edzio.Desktop/
+src/Edzio.Core/
+!src/Edzio.SignalingServer/
