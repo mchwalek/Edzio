@@ -57,8 +57,14 @@ public class ReceiveViewModel : BaseViewModel
     public bool ShowInitialStatus { get => _showInitialStatus; private set => SetProperty(ref _showInitialStatus, value); }
 
     public string? CompletedPath { get => _completedPath; private set => SetProperty(ref _completedPath, value); }
+
+    /// <summary>Current smoothed transfer rate, formatted for display (e.g. "2.4 MB/s").</summary>
     public string SpeedText { get => _speedText; private set => SetProperty(ref _speedText, value); }
+
+    /// <summary>Estimated time remaining, formatted for display (e.g. "1:32 remaining").</summary>
     public string RemainingText { get => _remainingText; private set => SetProperty(ref _remainingText, value); }
+
+    /// <summary>Bytes received so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
     public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
     public ReceiveViewModel(ISignalingClient signaling, TransferRepository repo,

@@ -171,6 +171,7 @@ public class SendViewModel : BaseViewModel
 
             await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, progress);
             IsComplete = true;
+            ShowProgress = false;
             StatusMessage = "Sent successfully!";
         }
         catch (Exception ex)
