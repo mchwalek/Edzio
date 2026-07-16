@@ -27,12 +27,33 @@ public class SendViewModel : BaseViewModel
     private double _progressValue = 0;
     private bool _showProgress = false;
     private bool _isComplete = false;
+    private string _speedText = "—";
+    private string _remainingText = "calculating…";
+    private string _transferredText = "";
 
-    public string PairingCode { get => _pairingCode; set => SetProperty(ref _pairingCode, value); }
+    /// <summary>
+    /// The receiver's pairing code. Uppercased live as it is set, so the
+    /// bound Entry always displays uppercase regardless of how the user typed it.
+    /// </summary>
+    public string PairingCode
+    {
+        get => _pairingCode;
+        set => SetProperty(ref _pairingCode, value.ToUpperInvariant());
+    }
+
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
     public double ProgressValue { get => _progressValue; private set => SetProperty(ref _progressValue, value); }
     public bool ShowProgress { get => _showProgress; private set => SetProperty(ref _showProgress, value); }
     public bool IsComplete { get => _isComplete; private set => SetProperty(ref _isComplete, value); }
+
+    /// <summary>Current smoothed transfer rate, formatted for display (e.g. "2.4 MB/s").</summary>
+    public string SpeedText { get => _speedText; private set => SetProperty(ref _speedText, value); }
+
+    /// <summary>Estimated time remaining, formatted for display (e.g. "1:32 remaining").</summary>
+    public string RemainingText { get => _remainingText; private set => SetProperty(ref _remainingText, value); }
+
+    /// <summary>Bytes sent so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
+    public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
     // Query properties for local peer navigation
     public string? LocalPeerIp { set { /* store for future local peer support */ } }
@@ -59,8 +80,27 @@ public class SendViewModel : BaseViewModel
         var result = await FilePicker.PickMultipleAsync();
         if (result is null) return;
         SelectedPaths.Clear();
-        foreach (var f in result) SelectedPaths.Add(f.FullPath);
-        ((Command)SendCommand).ChangeCanExecute();
+        AddPaths(result.Select(f => f.FullPath));
+    }
+
+    /// <summary>
+    /// Adds new file paths to the current selection, skipping duplicates
+    /// (case-insensitive). Shared by the file picker and drag-and-drop so
+    /// there is one code path for "files were added to the selection."
+    /// </summary>
+    public void AddPaths(IEnumerable<string> paths)
+    {
+        var added = false;
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            if (SelectedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)) continue;
+            SelectedPaths.Add(path);
+            added = true;
+        }
+
+        if (added)
+            ((Command)SendCommand).ChangeCanExecute();
     }
 
     private async Task SendAsync()
@@ -81,6 +121,9 @@ public class SendViewModel : BaseViewModel
             await _signaling.ConnectAsync(_settings.SignalingServerUrl);
             EdzioLog.Info("SendVM", "Connected to signaling server");
 
+            // PairingCode is already uppercased live by the property setter above;
+            // ToUpperInvariant() here is a harmless defensive no-op in case the
+            // value is ever set some other way that bypasses the setter's normalization.
             var code = PairingCode.Trim().ToUpperInvariant();
             EdzioLog.Info("SendVM", $"Joining as sender with code: {code}");
             var joined = await _signaling.JoinAsSenderAsync(code);
@@ -112,10 +155,18 @@ public class SendViewModel : BaseViewModel
             EdzioLog.Info("SendVM", "ConnectAsync complete");
 
             var sourceRoot = Path.GetDirectoryName(SelectedPaths[0]) ?? SelectedPaths[0];
+            var rateTracker = new TransferRateTracker();
             var progress = new Progress<TransferProgress>(p =>
             {
                 ProgressValue = p.Percentage / 100.0;
                 StatusMessage = $"Sending... {p.Percentage:F0}%";
+
+                var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
+                SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
+                RemainingText = snapshot.EtaSeconds is { } eta
+                    ? $"{ByteFormatter.FormatDuration(eta)} remaining"
+                    : "calculating…";
+                TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
             });
 
             await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, progress);
