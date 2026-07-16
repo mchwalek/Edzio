@@ -6,6 +6,9 @@
              x:DataType="vm:SendViewModel"
              Title="Send">
     <ScrollView>
+        <ScrollView.GestureRecognizers>
+            <DropGestureRecognizer AllowDrop="True" Drop="OnDrop" />
+        </ScrollView.GestureRecognizers>
         <VerticalStackLayout Padding="24" Spacing="12">
             <Label Text="Send Files" FontSize="24" FontAttributes="Bold" />
 
