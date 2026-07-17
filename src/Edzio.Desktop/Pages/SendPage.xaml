@@ -6,6 +6,9 @@
              x:DataType="vm:SendViewModel"
              Title="Send">
     <ScrollView>
+        <ScrollView.GestureRecognizers>
+            <DropGestureRecognizer AllowDrop="True" Drop="OnDrop" />
+        </ScrollView.GestureRecognizers>
         <VerticalStackLayout Padding="24" Spacing="12">
             <Label Text="Send Files" FontSize="24" FontAttributes="Bold" />
 
@@ -37,8 +40,12 @@
 
             <Label Text="{Binding StatusMessage}" TextColor="#444" />
 
-            <ProgressBar Progress="{Binding ProgressValue}"
-                         IsVisible="{Binding ShowProgress}" />
+            <VerticalStackLayout IsVisible="{Binding ShowProgress}" Spacing="4">
+                <ProgressBar Progress="{Binding ProgressValue}" />
+                <Label Text="{Binding SpeedText}" TextColor="#666" FontSize="13" />
+                <Label Text="{Binding RemainingText}" TextColor="#666" FontSize="13" />
+                <Label Text="{Binding TransferredText}" TextColor="#666" FontSize="13" />
+            </VerticalStackLayout>
 
             <Label Text="Transfer complete!" FontSize="18" TextColor="#107C10"
                    IsVisible="{Binding IsComplete}" HorizontalOptions="Center" />

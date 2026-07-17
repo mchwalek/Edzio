@@ -2,13 +2,9 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
-             xmlns:converters="clr-namespace:Edzio.Desktop.Converters"
              x:Class="Edzio.Desktop.Pages.ReceivePage"
              x:DataType="vm:ReceiveViewModel"
              Title="Receive">
-    <ContentPage.Resources>
-        <converters:InverseBoolConverter x:Key="InverseBool" />
-    </ContentPage.Resources>
     <ScrollView>
         <VerticalStackLayout Padding="24" Spacing="16" VerticalOptions="Center">
             <Label Text="Receive Files" FontSize="24" FontAttributes="Bold" HorizontalOptions="Center" />
@@ -29,6 +25,9 @@
                 <ProgressBar Progress="{Binding ProgressValue}" />
                 <Label Text="{Binding ProgressValue, StringFormat='{0:P0}'}"
                        HorizontalOptions="Center" TextColor="#666" />
+                <Label Text="{Binding SpeedText}" HorizontalOptions="Center" TextColor="#666" FontSize="13" />
+                <Label Text="{Binding RemainingText}" HorizontalOptions="Center" TextColor="#666" FontSize="13" />
+                <Label Text="{Binding TransferredText}" HorizontalOptions="Center" TextColor="#666" FontSize="13" />
             </VerticalStackLayout>
 
             <!-- Complete display -->
@@ -40,9 +39,9 @@
                         BackgroundColor="#0078D4" TextColor="White" CornerRadius="8" />
             </VerticalStackLayout>
 
-            <!-- Initial status (before code appears) -->
+            <!-- Initial status (before code, progress, or completion appears) -->
             <Label Text="{Binding StatusMessage}"
-                   IsVisible="{Binding ShowCode, Converter={StaticResource InverseBool}}"
+                   IsVisible="{Binding ShowInitialStatus}"
                    HorizontalOptions="Center" TextColor="#666" />
         </VerticalStackLayout>
     </ScrollView>

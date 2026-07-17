@@ -21,15 +21,51 @@ public class ReceiveViewModel : BaseViewModel
     private bool _showCode = false;
     private bool _showProgress = false;
     private bool _isComplete = false;
+    private bool _showInitialStatus = true;
     private string? _completedPath;
+    private string _speedText = "—";
+    private string _remainingText = "calculating…";
+    private string _transferredText = "";
 
     public string PairingCode { get => _pairingCode; private set => SetProperty(ref _pairingCode, value); }
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
     public double ProgressValue { get => _progressValue; private set => SetProperty(ref _progressValue, value); }
-    public bool ShowCode { get => _showCode; private set => SetProperty(ref _showCode, value); }
-    public bool ShowProgress { get => _showProgress; private set => SetProperty(ref _showProgress, value); }
-    public bool IsComplete { get => _isComplete; private set => SetProperty(ref _isComplete, value); }
+
+    public bool ShowCode
+    {
+        get => _showCode;
+        private set { SetProperty(ref _showCode, value); RefreshInitialStatusVisibility(); }
+    }
+
+    public bool ShowProgress
+    {
+        get => _showProgress;
+        private set { SetProperty(ref _showProgress, value); RefreshInitialStatusVisibility(); }
+    }
+
+    public bool IsComplete
+    {
+        get => _isComplete;
+        private set { SetProperty(ref _isComplete, value); RefreshInitialStatusVisibility(); }
+    }
+
+    /// <summary>
+    /// True only before the pairing code, progress, or completion sections
+    /// have appeared. Prevents the initial "Starting…"/"Connecting…" label
+    /// from re-showing (and duplicating StatusMessage) once progress begins.
+    /// </summary>
+    public bool ShowInitialStatus { get => _showInitialStatus; private set => SetProperty(ref _showInitialStatus, value); }
+
     public string? CompletedPath { get => _completedPath; private set => SetProperty(ref _completedPath, value); }
+
+    /// <summary>Current smoothed transfer rate, formatted for display (e.g. "2.4 MB/s").</summary>
+    public string SpeedText { get => _speedText; private set => SetProperty(ref _speedText, value); }
+
+    /// <summary>Estimated time remaining, formatted for display (e.g. "1:32 remaining").</summary>
+    public string RemainingText { get => _remainingText; private set => SetProperty(ref _remainingText, value); }
+
+    /// <summary>Bytes received so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
+    public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
     public ReceiveViewModel(ISignalingClient signaling, TransferRepository repo,
         SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
@@ -39,6 +75,9 @@ public class ReceiveViewModel : BaseViewModel
         _settings = settings;
         _webRtcLogger = webRtcLogger;
     }
+
+    private void RefreshInitialStatusVisibility()
+        => ShowInitialStatus = !ShowCode && !ShowProgress && !IsComplete;
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -87,10 +126,18 @@ public class ReceiveViewModel : BaseViewModel
             var outputRoot = _settings.DownloadLocation;
             Directory.CreateDirectory(outputRoot);
 
+            var rateTracker = new TransferRateTracker();
             var progress = new Progress<TransferProgress>(p =>
             {
                 ProgressValue = p.Percentage / 100.0;
                 StatusMessage = $"Receiving... {p.Percentage:F0}%";
+
+                var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
+                SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
+                RemainingText = snapshot.EtaSeconds is { } eta
+                    ? $"{ByteFormatter.FormatDuration(eta)} remaining"
+                    : "calculating…";
+                TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
             });
 
             await TransferSession.ReceiveAsync(outputRoot, "Sender", channel, _repo, progress, ct);
