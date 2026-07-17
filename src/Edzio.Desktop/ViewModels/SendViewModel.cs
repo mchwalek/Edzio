@@ -38,7 +38,7 @@ public class SendViewModel : BaseViewModel
     public string PairingCode
     {
         get => _pairingCode;
-        set => SetProperty(ref _pairingCode, value.ToUpperInvariant());
+        set => SetProperty(ref _pairingCode, value?.ToUpperInvariant() ?? string.Empty);
     }
 
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
