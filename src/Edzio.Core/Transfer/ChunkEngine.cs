@@ -102,8 +102,20 @@ public static class ChunkEngine
         if (finalDir != null)
             Directory.CreateDirectory(finalDir);
 
-        return new FileStream(finalPath + ".part", FileMode.OpenOrCreate, FileAccess.Write,
+        var stream = new FileStream(finalPath + ".part", FileMode.OpenOrCreate, FileAccess.Write,
             FileShare.None, bufferSize: 0, useAsync: true);
+
+        // Truncate/extend to this manifest's expected size for this file. Guards
+        // against a stale .part left over from an earlier, larger/different
+        // transfer that reused the same relative path — without this, trailing
+        // bytes beyond what this session ever writes would survive FileMode.OpenOrCreate
+        // and get silently promoted into the final file by FinalizeFile. Safe for
+        // resumed sessions too: every already-written chunk lies within
+        // [0, expectedSize) since its offset is derived from this same manifest.
+        long expectedSize = manifest.Files[fileIndex].Chunks.Sum(c => (long)c.SizeBytes);
+        stream.SetLength(expectedSize);
+
+        return stream;
     }
 
     /// <summary>

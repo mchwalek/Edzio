@@ -113,6 +113,41 @@ public class ChunkEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenPartStream_StaleLargerPartFileOnDisk_TruncatesToExpectedSize()
+    {
+        // Regression test for a PR review finding: FileMode.OpenOrCreate reuses an
+        // existing .part file as-is. If a stale .part from an earlier, larger/
+        // different transfer occupies the same relative path, its trailing bytes
+        // beyond this manifest's expected size must not survive into the final file.
+        var content = new byte[] { 1, 2, 3, 4, 5 };
+        var srcPath = Path.Combine(_tempDir, "orig.bin");
+        await File.WriteAllBytesAsync(srcPath, content);
+
+        var entry = await ChunkEngine.BuildFileEntryAsync(srcPath, "orig.bin");
+        var manifest = new Core.Models.TransferManifest("s1", content.Length, new[] { entry });
+
+        var outDir = Path.Combine(_tempDir, "out");
+        Directory.CreateDirectory(outDir);
+
+        // Simulate a stale .part file much larger than this manifest's expected size.
+        var stalePartPath = Path.Combine(outDir, "orig.bin.part");
+        await File.WriteAllBytesAsync(stalePartPath, new byte[content.Length + 1000]);
+
+        await using (var partStream = ChunkEngine.OpenPartStream(outDir, manifest, 0))
+        {
+            partStream.Length.Should().Be(content.Length,
+                "the stale trailing bytes from a previous, larger transfer must be truncated immediately on open");
+
+            await ChunkEngine.WriteChunkAsync(partStream, manifest, 0, 0, content);
+        }
+
+        ChunkEngine.FinalizeFile(outDir, manifest, 0);
+
+        var result = await File.ReadAllBytesAsync(Path.Combine(outDir, "orig.bin"));
+        result.Should().Equal(content, "the final file must not contain any stale trailing bytes");
+    }
+
+    [Fact]
     public async Task WriteChunkAsync_HashMismatch_Throws()
     {
         var original = new byte[] { 10, 20, 30 };

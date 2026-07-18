@@ -152,6 +152,15 @@ public static class LanDirect
         log?.Invoke($"[LanDirect] Racing TCP connect to {ad.Addresses.Count} address(es): " +
             $"{string.Join(", ", ad.Addresses)} (port {ad.Port})");
 
+        // A separate CTS for just the connect race (linked to, but distinct from,
+        // the caller's overall-call token): cancelling it the moment a winner is
+        // chosen stops the remaining attempts immediately, rather than leaving
+        // them to linger until the whole TryConnectAsync call (including the
+        // winner's own TLS handshake) finishes. A lingering loser can otherwise
+        // occupy the receiver's serial AcceptAsync handshake slot for up to its
+        // 5s timeout, for a connection that will never present a valid token.
+        var raceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         var attempts = new List<Task<TcpClient?>>();
         foreach (var address in ad.Addresses)
         {
@@ -167,7 +176,7 @@ public static class LanDirect
                 var client = new TcpClient(ip.AddressFamily);
                 try
                 {
-                    await client.ConnectAsync(ip, ad.Port, ct);
+                    await client.ConnectAsync(ip, ad.Port, raceCts.Token);
                     log?.Invoke($"[LanDirect] {address}: connected in {sw.ElapsedMilliseconds}ms.");
                     return client;
                 }
@@ -183,26 +192,41 @@ public static class LanDirect
                     client.Dispose();
                     return (TcpClient?)null;
                 }
-            }, ct));
+            }, raceCts.Token));
         }
 
         TcpClient? winner = null;
-        while (attempts.Count > 0)
+        try
         {
-            var finished = await Task.WhenAny(attempts);
-            attempts.Remove(finished);
-            var client = await finished;
-            if (client is not null && winner is null)
-                winner = client;
-            else
-                client?.Dispose();
+            while (attempts.Count > 0)
+            {
+                var finished = await Task.WhenAny(attempts);
+                attempts.Remove(finished);
+                var client = await finished;
+                if (client is not null && winner is null)
+                {
+                    winner = client;
+                    raceCts.Cancel(); // stop remaining attempts now, not at the end of the whole call
+                }
+                else
+                {
+                    client?.Dispose();
+                }
 
-            if (winner is not null)
-                break;
+                if (winner is not null)
+                    break;
+            }
+        }
+        finally
+        {
+            // Dispose raceCts only once every still-in-flight attempt (cancelled
+            // above) has actually completed — disposing while a lambda is
+            // mid-flight reading raceCts.Token would risk ObjectDisposedException
+            // there. `attempts` here holds exactly the not-yet-finished losers,
+            // since finished attempts were removed from it in the loop above.
+            _ = Task.WhenAll(attempts).ContinueWith(_ => raceCts.Dispose(), TaskScheduler.Default);
         }
 
-        // Remaining attempts are cancelled by the caller's linked token when it
-        // disposes; any late winners just get GC'd/disposed via their catch blocks.
         return winner;
     }
 }

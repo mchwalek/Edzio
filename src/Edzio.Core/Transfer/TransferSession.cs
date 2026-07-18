@@ -296,7 +296,15 @@ public static class TransferSession
         // Chunk-received DB marks are batched: a per-chunk SELECT + INSERT + commit
         // stalls the (fully serial) receive loop, which backpressures the sender
         // through SCTP flow control (see docs/debug/slow-webrtc-transfer-throughput).
-        var partStreams   = new Dictionary<int, FileStream>();
+        //
+        // Opened eagerly for every file (not lazily on first chunk): a zero-chunk
+        // file (an empty source file) never gets a Chunk message, so a lazy-open
+        // keyed off the Chunk branch would leave it with no .part file at all,
+        // and FinalizeFile's unconditional File.Move would throw FileNotFoundException.
+        var partStreams = new Dictionary<int, FileStream>();
+        for (int fi = 0; fi < manifest.Files.Count; fi++)
+            partStreams[fi] = ChunkEngine.OpenPartStream(outputRoot, manifest, fi);
+
         var pendingMarks  = new List<(int FileIndex, int ChunkIndex)>();
         const int MarkFlushBatchSize = 16;
 

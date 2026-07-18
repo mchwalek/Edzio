@@ -175,4 +175,40 @@ public sealed class FragmentedMessageTests : IDisposable
         var finalBytes = await File.ReadAllBytesAsync(Path.Combine(outputRoot, "file.bin"));
         finalBytes.Should().Equal(realContent);
     }
+
+    [Fact(Timeout = 15000)]
+    public async Task ZeroByteFile_TransfersSuccessfully()
+    {
+        // Regression test for a PR review finding: a zero-byte source file
+        // produces a FileEntry with an empty Chunks list, so it never receives a
+        // Chunk message. OpenPartStream was only ever called lazily from the
+        // Chunk-message branch, so such a file's .part was never created, and
+        // FinalizeFile's unconditional File.Move then threw FileNotFoundException.
+        var sourceRoot = Path.Combine(_testDir, "zerobyte-src");
+        var outputRoot = Path.Combine(_testDir, "zerobyte-out");
+        Directory.CreateDirectory(sourceRoot);
+        Directory.CreateDirectory(outputRoot);
+
+        var emptyFilePath = Path.Combine(sourceRoot, "empty.bin");
+        await File.WriteAllBytesAsync(emptyFilePath, Array.Empty<byte>());
+
+        var entry = await ChunkEngine.BuildFileEntryAsync(emptyFilePath, "empty.bin");
+        entry.Chunks.Should().BeEmpty("a zero-byte file has no chunks — this is exactly the scenario that previously threw");
+
+        var manifest = new TransferManifest(Guid.NewGuid().ToString("N"), 0, new[] { entry });
+
+        var senderRepo = RepositoryFactory.Create();
+        var receiverRepo = RepositoryFactory.Create();
+        var (senderChannel, receiverChannel) = RecordingChannel.CreatePair();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var sendTask = TransferSession.SendAsync(sourceRoot, manifest, senderChannel, senderRepo, ct: cts.Token);
+        var receiveTask = TransferSession.ReceiveAsync(outputRoot, "PeerA", receiverChannel, receiverRepo, ct: cts.Token);
+
+        await Task.WhenAll(sendTask, receiveTask);
+
+        var finalPath = Path.Combine(outputRoot, "empty.bin");
+        File.Exists(finalPath).Should().BeTrue();
+        (await File.ReadAllBytesAsync(finalPath)).Should().BeEmpty();
+    }
 }
