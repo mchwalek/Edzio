@@ -58,6 +58,31 @@ public class TransferRepository
         }
     }
 
+    /// <summary>
+    /// Marks a batch of chunks as received in a single INSERT + commit. The caller
+    /// is responsible for not passing chunks that are already marked (a duplicate
+    /// violates the unique index). Batching exists because a per-chunk
+    /// SELECT + INSERT + commit (with SQLite journal fsync) stalls the serial
+    /// receive loop enough to throttle transfer throughput.
+    /// </summary>
+    public async Task MarkChunksReceivedAsync(
+        string sessionId, IReadOnlyCollection<(int FileIndex, int ChunkIndex)> chunks)
+    {
+        if (chunks.Count == 0)
+            return;
+
+        foreach (var (fileIndex, chunkIndex) in chunks)
+        {
+            _db.ReceivedChunks.Add(new ReceivedChunkEntity
+            {
+                SessionId = sessionId,
+                FileIndex = fileIndex,
+                ChunkIndex = chunkIndex
+            });
+        }
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<IReadOnlyList<(int FileIndex, int ChunkIndex)>> GetReceivedChunksAsync(string sessionId)
     {
         return await _db.ReceivedChunks

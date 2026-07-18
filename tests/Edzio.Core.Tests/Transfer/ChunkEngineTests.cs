@@ -84,9 +84,11 @@ public class ChunkEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteChunkAsync_ThenAssemble_ProducesOriginalFile()
+    public async Task WriteChunkAsync_ThenFinalize_ProducesOriginalFile()
     {
-        var original = new byte[] { 10, 20, 30, 40, 50 };
+        // Multi-chunk so offset math ((long)chunkIndex * ChunkSize) is exercised.
+        var original = new byte[ChunkEngine.ChunkSize + 100];
+        new Random(42).NextBytes(original);
         var srcPath = Path.Combine(_tempDir, "orig.bin");
         await File.WriteAllBytesAsync(srcPath, original);
 
@@ -96,13 +98,37 @@ public class ChunkEngineTests : IDisposable
         var outDir = Path.Combine(_tempDir, "out");
         Directory.CreateDirectory(outDir);
 
-        await foreach (var (fi, ci, data) in ChunkEngine.ReadChunksAsync(_tempDir, manifest, new HashSet<(int,int)>()))
-            await ChunkEngine.WriteChunkAsync(outDir, manifest, fi, ci, data);
+        await using (var partStream = ChunkEngine.OpenPartStream(outDir, manifest, 0))
+        {
+            await foreach (var (fi, ci, data) in ChunkEngine.ReadChunksAsync(_tempDir, manifest, new HashSet<(int,int)>()))
+                await ChunkEngine.WriteChunkAsync(partStream, manifest, fi, ci, data);
+        }
 
-        await ChunkEngine.AssembleFileAsync(outDir, manifest, 0);
+        ChunkEngine.FinalizeFile(outDir, manifest, 0);
 
         var finalPath = Path.Combine(outDir, "orig.bin");
+        File.Exists(finalPath + ".part").Should().BeFalse();
         var result = await File.ReadAllBytesAsync(finalPath);
         result.Should().Equal(original);
+    }
+
+    [Fact]
+    public async Task WriteChunkAsync_HashMismatch_Throws()
+    {
+        var original = new byte[] { 10, 20, 30 };
+        var srcPath = Path.Combine(_tempDir, "orig.bin");
+        await File.WriteAllBytesAsync(srcPath, original);
+
+        var entry = await ChunkEngine.BuildFileEntryAsync(srcPath, "orig.bin");
+        var manifest = new Core.Models.TransferManifest("s1", original.Length, new[] { entry });
+
+        var outDir = Path.Combine(_tempDir, "out");
+        Directory.CreateDirectory(outDir);
+
+        await using var partStream = ChunkEngine.OpenPartStream(outDir, manifest, 0);
+        var corrupted = new byte[] { 99, 99, 99 };
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ChunkEngine.WriteChunkAsync(partStream, manifest, 0, 0, corrupted));
     }
 }
