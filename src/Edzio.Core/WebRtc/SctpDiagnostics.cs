@@ -98,22 +98,33 @@ internal static class SctpDiagnostics
         var sender = TryResolveDataSender(pc);
         if (sender is null)
         {
-            log($"[SctpDiag {label}] unavailable — SIPSorcery internals changed?");
+            SafeLog(log, $"[SctpDiag {label}] unavailable — SIPSorcery internals changed?");
             return new Sampler(null);
         }
 
         var cts = new CancellationTokenSource();
         _ = Task.Run(async () =>
         {
+            // Both failure modes below are reported exactly once. A silent sampler is
+            // indistinguishable from a healthy quiet link, but a per-iteration complaint
+            // would bury the samples this type exists to produce.
+            var sampleFailureLogged = false;
+
             try
             {
                 while (!cts.IsCancellationRequested)
                 {
                     if (TrySample(sender) is { } s)
                     {
-                        log($"[SctpDiag {label}] cwnd={s.CongestionWindow} " +
+                        SafeLog(log, $"[SctpDiag {label}] cwnd={s.CongestionWindow} " +
                             $"outstanding={s.OutstandingBytes} rwnd={s.ReceiverWindow} " +
                             $"rto={s.RetransmissionTimeout:F3}s missing={s.MissingChunks}");
+                    }
+                    else if (!sampleFailureLogged)
+                    {
+                        sampleFailureLogged = true;
+                        SafeLog(log, $"[SctpDiag {label}] sampling failed — SIPSorcery " +
+                            "internals changed? (reported once; sampling continues)");
                     }
 
                     await Task.Delay(interval, cts.Token);
@@ -123,13 +134,32 @@ internal static class SctpDiagnostics
             {
                 // Expected on dispose.
             }
-            catch
+            catch (Exception ex)
             {
-                // Diagnostics must never fault the transfer.
+                // Diagnostics must never fault the transfer, but they must not vanish
+                // without a trace either — this is the last line this sampler will write.
+                SafeLog(log, $"[SctpDiag {label}] sampling stopped: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
             }
         }, cts.Token);
 
         return new Sampler(cts);
+    }
+
+    /// <summary>
+    /// Writes one line to <paramref name="log"/>, absorbing any fault from the
+    /// caller-supplied delegate. Diagnostics must never throw into the transfer path.
+    /// </summary>
+    private static void SafeLog(Action<string> log, string message)
+    {
+        try
+        {
+            log(message);
+        }
+        catch
+        {
+            // A broken log sink is not worth failing a transfer over.
+        }
     }
 
     private static object? Read(Type type, object instance, string fieldName)
