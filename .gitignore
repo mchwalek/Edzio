@@ -438,3 +438,4 @@ infra/main.json
 
 # Local git worktrees used for isolated feature work
 .worktrees/
+.superpowers/
