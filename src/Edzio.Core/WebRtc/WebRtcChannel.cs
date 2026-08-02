@@ -46,6 +46,12 @@ public sealed class WebRtcChannel : ITransferChannel
     /// </summary>
     private static readonly TimeSpan FlushGracePeriod = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>
+    /// How often the read-only SCTP diagnostic sampler reports congestion state.
+    /// Slow enough to be free, fast enough to see a window collapse and recovery.
+    /// </summary>
+    private static readonly TimeSpan SctpDiagnosticInterval = TimeSpan.FromMilliseconds(500);
+
     private readonly RTCConfiguration _rtcConfig;
     private readonly ISignalingClient _signaling;
     private readonly WebRtcRole _role;
@@ -53,6 +59,7 @@ public sealed class WebRtcChannel : ITransferChannel
 
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _dataChannel;
+    private IDisposable? _sctpDiagnostics;
 
     private readonly Channel<byte[]> _incoming =
         Channel.CreateBounded<byte[]>(64);
@@ -173,9 +180,20 @@ public sealed class WebRtcChannel : ITransferChannel
         // ── Now construct the peer connection ────────────────────────────────
         _pc = new RTCPeerConnection(_rtcConfig);
 
-        // Log ICE + connection state transitions — critical for diagnosing hangs
+        // Log ICE + connection state transitions — critical for diagnosing hangs.
+        // Which ICE path won matters for throughput analysis: a relayed (TURN) pair
+        // has very different characteristics from a direct host/srflx pair, and
+        // mistaking one for the other would invalidate any congestion measurement.
         _pc.oniceconnectionstatechange += state =>
+        {
             Log($"[{_role}] ICE connection state → {state}");
+            if (state != RTCIceConnectionState.connected) return;
+
+            var pair = _pc is null ? null : TryGetNominatedIcePair(_pc);
+            Log(pair is null
+                ? $"[{_role}] ICE connected; nominated pair unavailable"
+                : $"[{_role}] ICE nominated pair: local={pair.LocalCandidate?.type} remote={pair.RemoteCandidate?.type}");
+        };
         _pc.onconnectionstatechange += state =>
         {
             Log($"[{_role}] Peer connection state → {state}");
@@ -316,6 +334,14 @@ public sealed class WebRtcChannel : ITransferChannel
     {
         var applied = _pc is not null && TryReduceSctpBurstPeriod(_pc);
         Log($"[{_role}] SCTP pacing workaround {(applied ? "applied" : "NOT applied — SIPSorcery internals changed?")}");
+
+        // This method runs once per channel — from dc.onopen or the already-open
+        // branch — so the null check is only there for the case where both fire.
+        if (_pc is not null && _sctpDiagnostics is null)
+        {
+            _sctpDiagnostics = SctpDiagnostics.Start(
+                _pc, _role.ToString(), Log, SctpDiagnosticInterval);
+        }
     }
 
     /// <summary>
@@ -348,6 +374,26 @@ public sealed class WebRtcChannel : ITransferChannel
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Reflection walk: RTCPeerConnection → its private <c>RtpIceChannel</c> →
+    /// the nominated checklist entry, i.e. the candidate pair actually carrying
+    /// traffic. SIPSorcery 8.0.23 exposes no public accessor for the ICE channel,
+    /// so only that first hop is reflective; everything past it is typed.
+    /// Returns null (never throws) if the internals moved or nothing is nominated.
+    /// </summary>
+    internal static ChecklistEntry? TryGetNominatedIcePair(RTCPeerConnection pc)
+    {
+        try
+        {
+            var iceChannel = FindMemberValueByTypeName(pc, "RtpIceChannel") as RtpIceChannel;
+            return iceChannel?.NominatedEntry;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -421,6 +467,11 @@ public sealed class WebRtcChannel : ITransferChannel
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        // Stop sampling before the peer connection is torn down. Dispose only
+        // cancels — it does not join the sampler task — so one straggling sample
+        // may still be logged after this returns; it must not reach a disposed _pc.
+        _sctpDiagnostics?.Dispose();
+
         await FlushOutboundDataAsync();
 
         _pc?.close();
