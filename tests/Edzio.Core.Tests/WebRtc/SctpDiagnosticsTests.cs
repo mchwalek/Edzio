@@ -83,29 +83,48 @@ public class SctpDiagnosticsTests
     }
 
     /// <summary>
-    /// Diagnostics must never throw into the transfer path, including when the
-    /// caller-supplied log sink itself faults on every call.
+    /// A faulting log sink must not kill the sampler. Absorbing the fault is what
+    /// stops a transient sink problem from silently ending a WAN measurement that
+    /// may already be minutes long.
     /// </summary>
     [Fact]
-    public async Task Start_WhenLogSinkAlwaysThrows_DoesNotPropagate()
+    public async Task Start_WhenLogSinkThrowsThenRecovers_KeepsSampling()
     {
         var pc = new RTCPeerConnection(new RTCConfiguration());
+        var lines = new List<string>();
+        var faultsRemaining = 3;
 
-        var run = async () =>
+        // Faults the first three writes, then records normally. Without the loop's
+        // fault absorption the very first throw ends sampling and nothing is ever
+        // recorded, so an empty list is the falsifying observation.
+        void Sink(string line)
         {
-            using (SctpDiagnostics.Start(
-                pc,
-                "probe",
-                _ => throw new InvalidOperationException("log sink is down"),
-                TimeSpan.FromMilliseconds(10)))
+            lock (lines)
             {
-                await Task.Delay(100);
-            }
-        };
+                if (faultsRemaining > 0)
+                {
+                    faultsRemaining--;
+                    throw new InvalidOperationException("log sink is down");
+                }
 
-        await run.Should().NotThrowAsync();
+                lines.Add(line);
+            }
+        }
+
+        using (SctpDiagnostics.Start(pc, "probe", Sink, TimeSpan.FromMilliseconds(10)))
+        {
+            await WaitUntilAsync(() => { lock (lines) { return lines.Count > 0; } });
+        }
 
         pc.Close("test complete");
+
+        lock (lines)
+        {
+            faultsRemaining.Should().Be(0,
+                "the sampler must have kept calling the sink through every fault");
+            lines.Should().NotBeEmpty("sampling must survive a faulting log sink")
+                .And.OnlyContain(l => l.Contains("cwnd="));
+        }
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
