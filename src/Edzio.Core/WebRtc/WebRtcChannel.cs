@@ -46,12 +46,6 @@ public sealed class WebRtcChannel : ITransferChannel
     /// </summary>
     private static readonly TimeSpan FlushGracePeriod = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>
-    /// How often the read-only SCTP diagnostic sampler reports congestion state.
-    /// Slow enough to be free, fast enough to see a window collapse and recovery.
-    /// </summary>
-    private static readonly TimeSpan SctpDiagnosticInterval = TimeSpan.FromMilliseconds(500);
-
     private readonly RTCConfiguration _rtcConfig;
     private readonly ISignalingClient _signaling;
     private readonly WebRtcRole _role;
@@ -59,7 +53,6 @@ public sealed class WebRtcChannel : ITransferChannel
 
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _dataChannel;
-    private IDisposable? _sctpDiagnostics;
 
     private readonly Channel<byte[]> _incoming =
         Channel.CreateBounded<byte[]>(64);
@@ -334,14 +327,6 @@ public sealed class WebRtcChannel : ITransferChannel
     {
         var applied = _pc is not null && TryReduceSctpBurstPeriod(_pc);
         Log($"[{_role}] SCTP pacing workaround {(applied ? "applied" : "NOT applied — SIPSorcery internals changed?")}");
-
-        // This method runs once per channel — from dc.onopen or the already-open
-        // branch — so the null check is only there for the case where both fire.
-        if (_pc is not null && _sctpDiagnostics is null)
-        {
-            _sctpDiagnostics = SctpDiagnostics.Start(
-                _pc, _role.ToString(), Log, SctpDiagnosticInterval);
-        }
     }
 
     /// <summary>
@@ -467,11 +452,6 @@ public sealed class WebRtcChannel : ITransferChannel
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        // Stop sampling before the peer connection is torn down. Dispose only
-        // cancels — it does not join the sampler task — so one straggling sample
-        // may still be logged after this returns; it must not reach a disposed _pc.
-        _sctpDiagnostics?.Dispose();
-
         await FlushOutboundDataAsync();
 
         _pc?.close();

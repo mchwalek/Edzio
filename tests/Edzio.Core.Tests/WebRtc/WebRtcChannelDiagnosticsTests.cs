@@ -10,14 +10,14 @@ public class WebRtcChannelDiagnosticsTests
 {
     /// <summary>
     /// Guard test for the diagnostics wiring in <see cref="WebRtcChannel"/>: an open
-    /// channel must report SCTP congestion samples and which ICE pair carries the
-    /// traffic. Both lines are what the WAN measurement reads, so losing either —
-    /// through a wiring regression or a SIPSorcery package bump moving
-    /// <c>RtpIceChannel.NominatedEntry</c> — must fail here rather than show up as a
-    /// silently empty log during the manual two-machine run.
+    /// channel must report which ICE pair carries the traffic. This line is what the
+    /// WAN measurement reads, so losing it — through a wiring regression or a
+    /// SIPSorcery package bump moving <c>RtpIceChannel.NominatedEntry</c> — must fail
+    /// here rather than show up as a silently empty log during the manual
+    /// two-machine run.
     /// </summary>
     [Fact(Timeout = 30000)]
-    public async Task OpenChannel_LogsSctpSamplesAndNominatedIcePair()
+    public async Task OpenChannel_LogsNominatedIcePair()
     {
         var paired = new PairedFakeSignaling();
         var config = new RTCConfiguration(); // host candidates only — loopback ICE
@@ -33,11 +33,8 @@ public class WebRtcChannelDiagnosticsTests
         await Task.WhenAll(offererConnect, answererConnect);
         await Task.WhenAll(offerer.WaitForOpenAsync(cts.Token), answerer.WaitForOpenAsync(cts.Token));
 
-        await WaitUntilAsync(() =>
-            log.Any("[SctpDiag Offerer] cwnd=") && log.Any("ICE nominated pair:"));
+        await WaitUntilAsync(() => log.Any("ICE nominated pair:"));
 
-        log.Lines.Should().Contain(l => l.Contains("[SctpDiag Offerer] cwnd="),
-            "the channel must start the SCTP sampler when its data channel opens");
         log.Lines.Should().Contain(l => l.Contains("ICE nominated pair:"),
             "the walk to RtpIceChannel.NominatedEntry must still resolve in the current SIPSorcery version");
     }
