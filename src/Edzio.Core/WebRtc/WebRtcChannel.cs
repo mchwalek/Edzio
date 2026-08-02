@@ -429,6 +429,12 @@ public sealed class WebRtcChannel : ITransferChannel
     }
 
     /// <summary>
+    /// Bytes handed to the data channel that have not yet left the SCTP send queue.
+    /// Zero means this channel has nothing outstanding.
+    /// </summary>
+    internal ulong BufferedAmount => _dataChannel?.bufferedAmount ?? 0;
+
+    /// <summary>
     /// Applies backpressure so <see cref="SendAsync"/> doesn't dump an entire large
     /// file into the local SCTP send queue faster than it can actually be
     /// transmitted. See <see cref="MaxBufferedAmount"/>.
