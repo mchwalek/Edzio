@@ -351,7 +351,12 @@ public sealed class WebRtcChannel : ITransferChannel
         }
     }
 
-    private static object? FindMemberValueByTypeName(object instance, string typeNameFragment)
+    /// <summary>
+    /// Finds the first field or property on <paramref name="instance"/> whose declared
+    /// type name contains <paramref name="typeNameFragment"/>, and returns its value.
+    /// Matching by type name rather than member name survives upstream renames.
+    /// </summary>
+    internal static object? FindMemberValueByTypeName(object instance, string typeNameFragment)
     {
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
