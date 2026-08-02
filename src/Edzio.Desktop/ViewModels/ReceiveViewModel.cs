@@ -118,10 +118,10 @@ public class ReceiveViewModel : BaseViewModel
                 });
             }
 
-            EdzioLog.Info("ReceiveVM", "Creating WebRtcChannel (Answerer)...");
-            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Answerer, _webRtcLogger);
-            await channel.ConnectAsync(ct);
-            EdzioLog.Info("ReceiveVM", "ConnectAsync complete — waiting for data channel to open via WaitForOpenAsync...");
+            EdzioLog.Info("ReceiveVM", "Negotiating transfer channel (LAN-direct + WebRTC race)...");
+            await using var channel = await TransferChannelNegotiator.ConnectAsReceiverAsync(
+                rtcConfig, _signaling, _webRtcLogger, ct);
+            EdzioLog.Info("ReceiveVM", $"Channel established: {channel.GetType().Name}");
 
             var outputRoot = _settings.DownloadLocation;
             Directory.CreateDirectory(outputRoot);

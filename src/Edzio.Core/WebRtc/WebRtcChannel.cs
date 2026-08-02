@@ -131,6 +131,11 @@ public sealed class WebRtcChannel : ITransferChannel
         // ── Buffer remote ICE candidates until remote description is set ─────
         _signaling.IceCandidateReceived += (_, json) =>
         {
+            // LAN endpoint advertisements are piggybacked on the ICE relay by
+            // TransferChannelNegotiator — they are not ICE candidates.
+            if (json.Contains(Lan.LanDirect.AdvertisementJsonKey, StringComparison.Ordinal))
+                return;
+
             try
             {
                 var doc = JsonDocument.Parse(json);
@@ -228,6 +233,7 @@ public sealed class WebRtcChannel : ITransferChannel
             dc.onopen += () =>
             {
                 Log($"[{_role}] Data channel OPEN");
+                ApplySctpPacingWorkaround();
                 _channelOpen.TrySetResult();
             };
             dc.onclose += () => Log($"[{_role}] Data channel closed");
@@ -241,6 +247,7 @@ public sealed class WebRtcChannel : ITransferChannel
             if (dc.readyState == RTCDataChannelState.open)
             {
                 Log($"[{_role}] Data channel already OPEN on receipt — resolving immediately");
+                ApplySctpPacingWorkaround();
                 _channelOpen.TrySetResult();
             }
         }
@@ -291,6 +298,89 @@ public sealed class WebRtcChannel : ITransferChannel
             Log($"[{_role}] Local description set, sending answer via signaling...");
             await _signaling.SendAnswerAsync(answer.sdp);
             Log($"[{_role}] Answer sent, SDP exchange complete, waiting for data channel to open...");
+        }
+    }
+
+    /// <summary>
+    /// Works around SIPSorcery's SCTP sender pacing (upstream issues #1088/#1391):
+    /// <c>SctpDataSender.DoSend</c> transmits at most <c>MAX_BURST</c> (4) packets
+    /// per wake and then sleeps up to <c>_burstPeriodMilliseconds</c> (50 ms)
+    /// unless a SACK arrives, capping throughput at roughly
+    /// <c>4 × MTU / RTT</c> — ~1 MB/s on a typical Wi-Fi LAN. Shrinking the
+    /// internal burst period to 1 ms via reflection lets the sender wake often
+    /// enough to keep the (still cwnd/arwnd-gated) pipe full. MAX_BURST itself
+    /// is deliberately left alone: it is a const, and upstream reports show
+    /// raising it destabilizes the association.
+    /// </summary>
+    private void ApplySctpPacingWorkaround()
+    {
+        var applied = _pc is not null && TryReduceSctpBurstPeriod(_pc);
+        Log($"[{_role}] SCTP pacing workaround {(applied ? "applied" : "NOT applied — SIPSorcery internals changed?")}");
+    }
+
+    /// <summary>
+    /// Reflection walk: RTCPeerConnection → sctp transport → SCTP association →
+    /// SctpDataSender → internal <c>_burstPeriodMilliseconds</c> field.
+    /// Member lookups are by type name rather than member name where possible so
+    /// minor upstream refactors don't silently break the walk. Returns false
+    /// (never throws) if anything is missing.
+    /// </summary>
+    internal static bool TryReduceSctpBurstPeriod(RTCPeerConnection pc)
+    {
+        try
+        {
+            object? transport = pc.sctp;
+            if (transport is null) return false;
+
+            var association = FindMemberValueByTypeName(transport, "SctpAssociation");
+            if (association is null) return false;
+
+            var sender = FindMemberValueByTypeName(association, "SctpDataSender");
+            if (sender is null) return false;
+
+            var field = sender.GetType().GetField("_burstPeriodMilliseconds",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (field is null) return false;
+
+            field.SetValue(sender, 1);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static object? FindMemberValueByTypeName(object instance, string typeNameFragment)
+    {
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+
+        for (var type = instance.GetType(); type is not null; type = type.BaseType)
+        {
+            foreach (var f in type.GetFields(flags))
+            {
+                if (MatchesTypeName(f.FieldType, typeNameFragment) && f.GetValue(instance) is { } value)
+                    return value;
+            }
+            foreach (var p in type.GetProperties(flags))
+            {
+                if (p.GetIndexParameters().Length == 0
+                    && MatchesTypeName(p.PropertyType, typeNameFragment)
+                    && p.GetValue(instance) is { } value)
+                    return value;
+            }
+        }
+        return null;
+
+        static bool MatchesTypeName(Type t, string fragment)
+        {
+            for (Type? cur = t; cur is not null; cur = cur.BaseType)
+            {
+                if (cur.Name.Contains(fragment, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
     }
 

@@ -12,6 +12,7 @@ namespace Edzio.Core.Tests.Transfer;
 
 file static class MessageHelpers
 {
+    /// <summary>Builds a single-fragment Resume message: [0x07][totalParts=1][partIndex=0][JSON].</summary>
     public static byte[] ResumeMessage(IEnumerable<(int fi, int ci)>? skip = null)
     {
         var entries = (skip ?? Enumerable.Empty<(int, int)>())
@@ -19,9 +20,11 @@ file static class MessageHelpers
             .ToList();
 
         var json = JsonSerializer.SerializeToUtf8Bytes(entries);
-        var msg  = new byte[1 + json.Length];
-        msg[0]   = 0x02; // Resume
-        json.CopyTo(msg, 1);
+        var msg  = new byte[9 + json.Length];
+        msg[0]   = 0x07; // ResumeChunk
+        WriteInt32LE(msg, 1, 1); // totalParts
+        WriteInt32LE(msg, 5, 0); // partIndex
+        json.CopyTo(msg, 9);
         return msg;
     }
 
@@ -36,12 +39,20 @@ file static class MessageHelpers
         return (msg[0], fi, ci, d);
     }
 
-    public static bool IsManifest(byte[] msg) => msg.Length > 0 && msg[0] == 0x01;
+    public static bool IsManifest(byte[] msg) => msg.Length > 0 && msg[0] == 0x06; // ManifestChunk
     public static bool IsDone(byte[]    msg) => msg.Length == 1 && msg[0] == 0x04;
     public static bool IsChunk(byte[]   msg) => msg.Length > 0 && msg[0] == 0x03;
 
     private static int ReadInt32LE(byte[] b, int o) =>
         b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
+
+    private static void WriteInt32LE(byte[] buf, int offset, int value)
+    {
+        buf[offset + 0] = (byte)(value);
+        buf[offset + 1] = (byte)(value >> 8);
+        buf[offset + 2] = (byte)(value >> 16);
+        buf[offset + 3] = (byte)(value >> 24);
+    }
 }
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
@@ -224,6 +235,42 @@ public class TransferSessionSendTests
 
             // Chunk (0,1) MUST appear
             Assert.Contains(chunkMessages, c => c.fileIndex == 0 && c.chunkIndex == 1);
+        }
+        finally
+        {
+            TempFiles.Cleanup(root);
+        }
+    }
+
+    // ── 2b. Regression: resume skip set with a non-(0,0) index is honored ──
+    // (Guards against a real bug found while adding fragmentation support:
+    // JsonSerializer.Deserialize is case-sensitive by default, so the
+    // camelCase "fileIndex"/"chunkIndex" wire JSON failed to bind to the
+    // PascalCase ResumeEntry record properties, silently defaulting every
+    // parsed entry to (0,0). A skip set of exactly {(0,0)} — as used in the
+    // test above — could never have caught this.)
+
+    [Fact]
+    public async Task ResumeSend_SkipsNonZeroChunkIndex()
+    {
+        var (root, manifest) = await TempFiles.CreateAsync(chunkCount: 3);
+        try
+        {
+            var repo = TestData.InMemoryRepository();
+            // Receiver says chunk (fileIndex=0, chunkIndex=1) is already received —
+            // deliberately NOT (0,0), which a case-sensitivity bug would default to.
+            var channel = new StubChannel(MessageHelpers.ResumeMessage(new[] { (0, 1) }));
+
+            await TransferSession.SendAsync(root, manifest, channel, repo);
+
+            var chunkMessages = channel.Sent
+                .Where(MessageHelpers.IsChunk)
+                .Select(MessageHelpers.DecodeChunk)
+                .ToList();
+
+            Assert.DoesNotContain(chunkMessages, c => c.fileIndex == 0 && c.chunkIndex == 1);
+            Assert.Contains(chunkMessages, c => c.fileIndex == 0 && c.chunkIndex == 0);
+            Assert.Contains(chunkMessages, c => c.fileIndex == 0 && c.chunkIndex == 2);
         }
         finally
         {

@@ -149,10 +149,10 @@ public class SendViewModel : BaseViewModel
                     credential = _settings.TurnCredential
                 });
 
-            EdzioLog.Info("SendVM", "Creating WebRtcChannel (Offerer)...");
-            await using var channel = new WebRtcChannel(rtcConfig, _signaling, WebRtcRole.Offerer, _webRtcLogger);
-            await channel.ConnectAsync();
-            EdzioLog.Info("SendVM", "ConnectAsync complete");
+            EdzioLog.Info("SendVM", "Negotiating transfer channel (LAN-direct first, WebRTC fallback)...");
+            await using var channel = await TransferChannelNegotiator.ConnectAsSenderAsync(
+                rtcConfig, _signaling, _webRtcLogger);
+            EdzioLog.Info("SendVM", $"Channel established: {channel.GetType().Name}");
 
             var sourceRoot = Path.GetDirectoryName(SelectedPaths[0]) ?? SelectedPaths[0];
             var rateTracker = new TransferRateTracker();

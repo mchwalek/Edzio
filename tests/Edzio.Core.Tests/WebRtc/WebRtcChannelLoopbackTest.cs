@@ -15,17 +15,24 @@ public class PairedFakeSignaling
     public FakeSignalingClient Offerer { get; } = new();
     public FakeSignalingClient Answerer { get; } = new();
 
+    /// <summary>
+    /// Optional predicate: ICE-relay messages matching it are dropped instead of
+    /// forwarded. Used to simulate a relay/network where LAN endpoint
+    /// advertisements don't reach the sender.
+    /// </summary>
+    public Func<string, bool>? SuppressIce { get; set; }
+
     public PairedFakeSignaling()
     {
         // Offerer → Answerer
         Offerer.OnOfferSent  += sdp => Answerer.SimulateOfferReceived(sdp);
         Offerer.OnAnswerSent += sdp => Answerer.SimulateAnswerReceived(sdp);
-        Offerer.OnIceSent    += c   => Answerer.SimulateIceCandidateReceived(c);
+        Offerer.OnIceSent    += c   => { if (SuppressIce?.Invoke(c) != true) Answerer.SimulateIceCandidateReceived(c); };
 
         // Answerer → Offerer
         Answerer.OnOfferSent  += sdp => Offerer.SimulateOfferReceived(sdp);
         Answerer.OnAnswerSent += sdp => Offerer.SimulateAnswerReceived(sdp);
-        Answerer.OnIceSent    += c   => Offerer.SimulateIceCandidateReceived(c);
+        Answerer.OnIceSent    += c   => { if (SuppressIce?.Invoke(c) != true) Offerer.SimulateIceCandidateReceived(c); };
     }
 }
 
@@ -221,6 +228,70 @@ public class WebRtcChannelLoopbackTest
             var received = await answererChannel.ReceiveAsync(cts.Token);
             received.Should().Equal(chunks[i]);
         }
+    }
+
+    /// <summary>
+    /// Diagnostic benchmark (not a correctness test) for the slow-transfer
+    /// investigation (docs/debug/slow-webrtc-transfer-throughput). Measures raw
+    /// <see cref="WebRtcChannel"/> throughput with no disk I/O, no SQLite, and no
+    /// TransferSession overhead in the loop — isolates whatever the SIPSorcery
+    /// SCTP data channel itself can sustain on a loopback connection. Logs
+    /// elapsed time and MB/s via test output so it can be compared before/after
+    /// a SIPSorcery version bump.
+    /// </summary>
+    [Fact(Timeout = 60000, Skip = "Diagnostic benchmark — intentionally 'fails' to report timing. Remove Skip to run.")]
+    public async Task Benchmark_RawChannelThroughput_18MB()
+    {
+        var paired = new PairedFakeSignaling();
+        var config = new RTCConfiguration(); // host candidates only — no STUN needed
+
+        var offererChannel = new WebRtcChannel(config, paired.Offerer, WebRtcRole.Offerer);
+        await using var answererChannel = new WebRtcChannel(config, paired.Answerer, WebRtcRole.Answerer);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+
+        var answererConnectTask = answererChannel.ConnectAsync(cts.Token);
+        var offererConnectTask  = offererChannel.ConnectAsync(cts.Token);
+        await Task.WhenAll(offererConnectTask, answererConnectTask);
+
+        await Task.WhenAll(
+            offererChannel.WaitForOpenAsync(cts.Token),
+            answererChannel.WaitForOpenAsync(cts.Token));
+
+        const int chunkSize = 262135; // matches ChunkEngine.ChunkSize
+        const long targetBytes = 18_500_000; // matches the user's test file size
+        int chunkCount = (int)((targetBytes + chunkSize - 1) / chunkSize);
+
+        var rng = new Random(7);
+        var chunks = new byte[chunkCount][];
+        for (int i = 0; i < chunkCount; i++)
+        {
+            chunks[i] = new byte[chunkSize];
+            rng.NextBytes(chunks[i]);
+        }
+
+        var receiveTask = Task.Run(async () =>
+        {
+            for (int i = 0; i < chunkCount; i++)
+                await answererChannel.ReceiveAsync(cts.Token);
+        }, cts.Token);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        foreach (var chunk in chunks)
+            await offererChannel.SendAsync(chunk, cts.Token);
+
+        await receiveTask; // wait until the answerer has actually received everything
+        sw.Stop();
+
+        await offererChannel.DisposeAsync();
+
+        long totalBytes = (long)chunkCount * chunkSize;
+        double mbPerSec = totalBytes / 1024.0 / 1024.0 / sw.Elapsed.TotalSeconds;
+
+        throw new Xunit.Sdk.XunitException(
+            $"BENCHMARK RESULT (not a failure): {chunkCount} chunks, {totalBytes:N0} bytes, " +
+            $"{sw.Elapsed.TotalSeconds:F2}s, {mbPerSec:F2} MB/s");
     }
 
     /// <summary>

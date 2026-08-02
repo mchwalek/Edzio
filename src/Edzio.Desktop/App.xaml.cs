@@ -16,7 +16,7 @@ public partial class App : Application
 
         // Route SIPSorcery's internal logger to our file log
         SIPSorcery.LogFactory.Set(services.GetRequiredService<ILoggerFactory>());
-        EdzioLog.Info("App", $"Edzio starting. Log: {EdzioLog.LogPath}");
+        EdzioLog.Info("App", $"Edzio starting. Build: {BuildInfo.BuildTimestamp}. Log: {EdzioLog.LogPath}");
 
         // Ensure DB schema exists on first run
         using var scope = services.CreateScope();

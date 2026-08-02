@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             xmlns:services="clr-namespace:Edzio.Desktop.Services"
              x:Class="Edzio.Desktop.Pages.SettingsPage"
              x:DataType="vm:SettingsViewModel"
              Title="Settings">
@@ -36,6 +37,11 @@
             <Entry Text="{Binding TurnUsername}" Placeholder="username" />
             <Label Text="Credential" />
             <Entry Text="{Binding TurnCredential}" Placeholder="password" IsPassword="True" />
+
+            <BoxView HeightRequest="1" BackgroundColor="#DDD" Margin="0,12" />
+
+            <Label Text="{x:Static services:BuildInfo.BuildDisplayText}"
+                   FontSize="11" TextColor="#999" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

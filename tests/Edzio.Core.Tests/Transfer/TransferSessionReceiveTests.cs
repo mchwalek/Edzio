@@ -44,13 +44,24 @@ internal sealed class StubChannel : ITransferChannel
 // ---------------------------------------------------------------------------
 internal static class MessageBuilder
 {
+    /// <summary>Builds a single-fragment Manifest message: [0x06][totalParts=1][partIndex=0][JSON].</summary>
     public static byte[] ManifestMessage(TransferManifest manifest)
     {
         byte[] json = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest));
-        byte[] msg  = new byte[1 + json.Length];
-        msg[0] = (byte)TransferMessageType.Manifest;
-        json.CopyTo(msg, 1);
+        byte[] msg  = new byte[9 + json.Length];
+        msg[0] = (byte)TransferMessageType.ManifestChunk;
+        WriteInt32LE(msg, 1, 1); // totalParts
+        WriteInt32LE(msg, 5, 0); // partIndex
+        json.CopyTo(msg, 9);
         return msg;
+    }
+
+    private static void WriteInt32LE(byte[] buf, int offset, int value)
+    {
+        buf[offset + 0] = (byte)(value);
+        buf[offset + 1] = (byte)(value >> 8);
+        buf[offset + 2] = (byte)(value >> 16);
+        buf[offset + 3] = (byte)(value >> 24);
     }
 
     public static byte[] ChunkMessage(int fileIndex, int chunkIndex, byte[] data)
@@ -209,12 +220,12 @@ public sealed class TransferSessionReceiveTests : IDisposable
 
         await TransferSession.ReceiveAsync(_outputRoot, "PeerA", channel, repo);
 
-        // The first sent message (index 0 = Resume) should list fileIndex=0, chunkIndex=0
+        // The first sent message (index 0 = ResumeChunk) should list fileIndex=0, chunkIndex=0
         Assert.True(channel.SentMessages.Count >= 1);
         byte[] resumeMsg = channel.SentMessages[0];
-        Assert.Equal((byte)TransferMessageType.Resume, resumeMsg[0]);
+        Assert.Equal((byte)TransferMessageType.ResumeChunk, resumeMsg[0]);
 
-        string resumeJson = Encoding.UTF8.GetString(resumeMsg, 1, resumeMsg.Length - 1);
+        string resumeJson = Encoding.UTF8.GetString(resumeMsg, 9, resumeMsg.Length - 9);
         using var doc = JsonDocument.Parse(resumeJson);
         var items = doc.RootElement.EnumerateArray().ToList();
         Assert.Single(items);
