@@ -102,4 +102,49 @@ public class MultiWebRtcChannelTests
         // ~4380-byte per-association congestion window. See the design spec.
         MultiWebRtcChannel.DefaultLaneCount.Should().Be(8);
     }
+
+    /// <summary>
+    /// Regression test for a send-side lane failure being silently swallowed: before
+    /// the fix, a faulted pump only decremented <c>_inFlight</c> in its <c>finally</c>,
+    /// so <see cref="MultiWebRtcChannel.FlushAsync"/> would report "drained" even
+    /// though a message was dropped by the failed lane. A <c>null</c> payload
+    /// deterministically makes the underlying <c>WebRtcChannel</c>'s real
+    /// <c>send()</c> throw a <see cref="NullReferenceException"/> (verified via a
+    /// throwaway probe against SIPSorcery's <c>RTCDataChannel.send</c>), which
+    /// stands in for a realistic WAN send failure without mocking anything.
+    /// </summary>
+    [Fact(Timeout = 30000)]
+    public async Task SendAsync_SurfacesLaneFailure_InsteadOfFlushReportingFalseAllClear()
+    {
+        var paired = new PairedFakeSignaling();
+        var config = new RTCConfiguration();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        await using var offerer = new MultiWebRtcChannel(
+            config, paired.Offerer, WebRtcRole.Offerer, laneCount: 2);
+        await using var answerer = new MultiWebRtcChannel(
+            config, paired.Answerer, WebRtcRole.Answerer, laneCount: 2);
+
+        var answererConnect = answerer.ConnectAsync(cts.Token);
+        var offererConnect = offerer.ConnectAsync(cts.Token);
+        await Task.WhenAll(offererConnect, answererConnect);
+        await Task.WhenAll(offerer.WaitForOpenAsync(cts.Token), answerer.WaitForOpenAsync(cts.Token));
+
+        // Whichever lane's pump picks this up will throw inside lane.SendAsync.
+        await offerer.SendAsync(null!, cts.Token);
+
+        Func<Task> sendMoreThenFlush = async () =>
+        {
+            for (var i = 0; i < 20; i++)
+            {
+                await offerer.SendAsync(new byte[16], cts.Token);
+            }
+
+            await offerer.FlushAsync(cts.Token);
+        };
+
+        await sendMoreThenFlush.Should().ThrowAsync<Exception>(
+            "a lane's send failure must surface to the caller instead of FlushAsync " +
+            "reporting a false all-clear");
+    }
 }
