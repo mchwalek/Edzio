@@ -14,6 +14,10 @@ public class TransferChannelNegotiatorTests
     // against the LAN accept instead of 1, which needs more wall-clock headroom
     // on slower/busier CI hosts. Do not reduce MultiWebRtcChannel's lane count to
     // make this pass faster.
+    // On multi-NIC machines this test can also intermittently hang for an unrelated,
+    // pre-existing reason: a race in LanDirect.ConnectFirstAsync/LanDirectListener.AcceptAsync
+    // where the sender's chosen "winning" address can differ from whichever connection
+    // the receiver's serial accept loop dequeues first. Out of scope here; tracked for follow-up.
     [Fact(Timeout = 120000)]
     public async Task BothSides_OnSameHost_EstablishLanDirectChannel()
     {
