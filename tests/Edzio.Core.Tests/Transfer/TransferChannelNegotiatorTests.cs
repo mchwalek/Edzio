@@ -10,12 +10,16 @@ namespace Edzio.Core.Tests.Transfer;
 
 public class TransferChannelNegotiatorTests
 {
-    [Fact(Timeout = 30000)]
+    // Timeout raised from 30000: the receiver now races 8 loopback WebRTC lanes
+    // against the LAN accept instead of 1, which needs more wall-clock headroom
+    // on slower/busier CI hosts. Do not reduce MultiWebRtcChannel's lane count to
+    // make this pass faster.
+    [Fact(Timeout = 120000)]
     public async Task BothSides_OnSameHost_EstablishLanDirectChannel()
     {
         var paired = new PairedFakeSignaling();
         var config = new RTCConfiguration();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(110));
 
         // Sender first: with the synchronous fakes, the receiver's advertisement
         // fires during its own startup, so the sender must already be subscribed.
@@ -60,8 +64,8 @@ public class TransferChannelNegotiatorTests
         await using var sender = await senderTask;
         await using var receiver = await receiverTask;
 
-        sender.Should().BeOfType<WebRtcChannel>();
-        receiver.Should().BeOfType<WebRtcChannel>();
+        sender.Should().BeOfType<MultiWebRtcChannel>();
+        receiver.Should().BeOfType<MultiWebRtcChannel>();
 
         var payload = new byte[10_000];
         new Random(3).NextBytes(payload);
