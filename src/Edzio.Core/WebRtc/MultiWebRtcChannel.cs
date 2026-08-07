@@ -46,6 +46,13 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     /// </summary>
     private static readonly TimeSpan DisposeStallTimeout = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// How long <see cref="FlushAsync"/> waits for every lane's <c>FlushAck</c> before
+    /// giving up and throwing. Same value as <see cref="DisposeStallTimeout"/> — both
+    /// bound a wait for the peer under adverse network conditions.
+    /// </summary>
+    private static readonly TimeSpan FlushBarrierTimeout = TimeSpan.FromSeconds(15);
+
     private readonly WebRtcChannel[] _lanes;
     private readonly IndexedSignalingClient[] _laneSignaling;
     private readonly ILogger<WebRtcChannel>? _logger;
@@ -65,6 +72,16 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     /// <see cref="FlushAsync"/> instead of being silently dropped.
     /// </summary>
     private ExceptionDispatchInfo? _pumpFault;
+
+    /// <summary>
+    /// Set by <see cref="FlushAsync"/> before it sends any marker, cleared when it
+    /// returns. <see langword="null"/> at all other times. The merge loop
+    /// (<see cref="StartMergeAsync"/>) completes <c>_pendingFlushAcks[laneIndex]</c>
+    /// when that lane's <c>FlushAck</c> arrives. Always written before any marker can
+    /// possibly produce a matching ack, so no synchronization beyond
+    /// <see cref="Volatile"/> is needed.
+    /// </summary>
+    private TaskCompletionSource<bool>[]? _pendingFlushAcks;
 
     /// <summary>
     /// Creates the lanes. Nothing connects until <see cref="ConnectAsync"/> is called.
@@ -141,9 +158,21 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
         _inbound.Reader.ReadAsync(ct).AsTask();
 
     /// <summary>
-    /// Waits until the stripe queue is empty, no pump holds a message, and every lane's
-    /// SCTP send buffer has drained.
+    /// Waits until every chunk sent on every lane has been received by the peer —
+    /// not merely handed to this machine's local SCTP send buffer.
     /// </summary>
+    /// <remarks>
+    /// Draining the local send buffers alone is not enough: under real network loss a
+    /// chunk can still be in flight or retransmitting on a slow lane while a different,
+    /// faster lane's local buffer is already empty. Since <see cref="TransferSession"/>
+    /// sends the terminating Done message through the normal striped path immediately
+    /// after this returns, and work-stealing can put Done on any lane, an early return
+    /// here lets Done overtake a straggler chunk. So after the local drain, this sends
+    /// one FlushMarker down every lane — pinned to that lane, bypassing the pump — and
+    /// waits for the peer to echo a matching FlushAck on the same lane. SCTP delivers
+    /// in order within an association, so a lane's ack proves every chunk previously
+    /// sent on that lane has actually arrived.
+    /// </remarks>
     public async Task FlushAsync(CancellationToken ct = default)
     {
         while (true)
@@ -155,9 +184,46 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
             var inFlight = Volatile.Read(ref _inFlight);
             var buffered = _lanes.Sum(lane => (double)lane.BufferedAmount);
 
-            if (queued == 0 && inFlight == 0 && buffered == 0) return;
+            if (queued == 0 && inFlight == 0 && buffered == 0) break;
 
             await Task.Delay(DrainPollInterval, ct);
+        }
+
+        var acks = new TaskCompletionSource<bool>[_lanes.Length];
+        for (var i = 0; i < acks.Length; i++)
+        {
+            acks[i] = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        // Written before any marker is sent, so the merge loop can never observe an
+        // ack for a marker whose TCS isn't in place yet.
+        Volatile.Write(ref _pendingFlushAcks, acks);
+
+        try
+        {
+            for (var i = 0; i < _lanes.Length; i++)
+            {
+                ThrowIfPumpFaulted();
+                await _lanes[i].SendAsync(BuildFlushMarker(i), ct);
+            }
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(FlushBarrierTimeout);
+
+            try
+            {
+                await Task.WhenAll(acks.Select(ack => ack.Task.WaitAsync(timeoutCts.Token)));
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TransferException(
+                    $"Flush barrier timed out after {FlushBarrierTimeout.TotalSeconds}s waiting for " +
+                    "the peer to acknowledge every lane.");
+            }
+        }
+        finally
+        {
+            Volatile.Write(ref _pendingFlushAcks, null);
         }
     }
 
@@ -269,6 +335,43 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     /// <summary>Rethrows the first captured pump fault, if any. See <see cref="_pumpFault"/>.</summary>
     private void ThrowIfPumpFaulted() => Volatile.Read(ref _pumpFault)?.Throw();
 
+    /// <summary>Builds a <see cref="TransferMessageType.FlushMarker"/> message: type byte + 4-byte LE lane index.</summary>
+    internal static byte[] BuildFlushMarker(int laneIndex) =>
+        BuildLaneTaggedMessage(TransferMessageType.FlushMarker, laneIndex);
+
+    /// <summary>Builds a <see cref="TransferMessageType.FlushAck"/> message: type byte + 4-byte LE lane index.</summary>
+    internal static byte[] BuildFlushAck(int laneIndex) =>
+        BuildLaneTaggedMessage(TransferMessageType.FlushAck, laneIndex);
+
+    private static byte[] BuildLaneTaggedMessage(TransferMessageType type, int laneIndex)
+    {
+        var message = new byte[5];
+        message[0] = (byte)type;
+        BitConverter.TryWriteBytes(message.AsSpan(1), laneIndex);
+        return message;
+    }
+
+    /// <summary>
+    /// True if <paramref name="message"/> is a 5-byte <see cref="TransferMessageType.FlushMarker"/>
+    /// or <see cref="TransferMessageType.FlushAck"/> message, with its lane index decoded.
+    /// </summary>
+    internal static bool TryReadFlushProtocolMessage(
+        byte[] message, out TransferMessageType type, out int laneIndex)
+    {
+        if (message.Length == 5 &&
+            (message[0] == (byte)TransferMessageType.FlushMarker ||
+             message[0] == (byte)TransferMessageType.FlushAck))
+        {
+            type = (TransferMessageType)message[0];
+            laneIndex = BitConverter.ToInt32(message, 1);
+            return true;
+        }
+
+        type = default;
+        laneIndex = default;
+        return false;
+    }
+
     /// <summary>
     /// Merges one lane's inbound messages into the shared receive queue. A lane failing
     /// faults the queue so the transfer surfaces the error rather than hanging.
@@ -280,6 +383,24 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
             while (!_lifetime.Token.IsCancellationRequested)
             {
                 var message = await lane.ReceiveAsync(_lifetime.Token);
+
+                if (TryReadFlushProtocolMessage(message, out var type, out var laneIndex))
+                {
+                    if (type == TransferMessageType.FlushMarker)
+                    {
+                        // Echo back on the same physical lane the marker arrived on —
+                        // the marker's own laneIndex is only used by the sender to
+                        // route the resulting ack to the right TaskCompletionSource.
+                        await lane.SendAsync(BuildFlushAck(laneIndex), _lifetime.Token);
+                    }
+                    else
+                    {
+                        Volatile.Read(ref _pendingFlushAcks)?[laneIndex].TrySetResult(true);
+                    }
+
+                    continue;
+                }
+
                 await _inbound.Writer.WriteAsync(message, _lifetime.Token);
             }
         }
