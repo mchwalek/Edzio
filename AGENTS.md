@@ -134,8 +134,6 @@ Every `ITransferChannel` message starts with a 1-byte type tag:
 
 | Byte | Type | Payload |
 | ---- | ---- | ------- |
-| `0x01` | Manifest | *(legacy — no longer sent; superseded by `0x06 ManifestChunk`)* UTF-8 JSON of `TransferManifest` |
-| `0x02` | Resume | *(legacy — no longer sent; superseded by `0x07 ResumeChunk`)* UTF-8 JSON array of `{fileIndex, chunkIndex}` already received |
 | `0x03` | Chunk | 4-byte LE fileIndex + 4-byte LE chunkIndex + raw chunk bytes |
 | `0x04` | Done | empty |
 | `0x05` | Error | UTF-8 error message |

@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Edzio.Core.Tests" />
+    <InternalsVisibleTo Include="Edzio.Benchmarks" />
   </ItemGroup>
 </Project>

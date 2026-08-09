@@ -8,4 +8,7 @@
     <Project Path="tests/Edzio.Core.Tests/Edzio.Core.Tests.csproj" />
     <Project Path="tests/Edzio.SignalingServer.Tests/Edzio.SignalingServer.Tests.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Edzio.Benchmarks/Edzio.Benchmarks.csproj" />
+  </Folder>
 </Solution>

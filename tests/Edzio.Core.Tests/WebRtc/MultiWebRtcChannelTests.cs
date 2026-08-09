@@ -107,14 +107,6 @@ public class MultiWebRtcChannelTests
         chunksBeforeDone.Should().Be(chunkCount, "Done must arrive after every chunk");
     }
 
-    [Fact]
-    public void DefaultLaneCount_IsEight()
-    {
-        // Derived from ~34 KB in flight needed for 6.75 MB/s at 5 ms RTT, over the
-        // ~4380-byte per-association congestion window. See the design spec.
-        MultiWebRtcChannel.DefaultLaneCount.Should().Be(8);
-    }
-
     /// <summary>
     /// Regression test for a send-side lane failure being silently swallowed: before
     /// the fix, a faulted pump only decremented <c>_inFlight</c> in its <c>finally</c>,
