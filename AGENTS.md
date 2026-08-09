@@ -22,7 +22,7 @@
 | Core library | .NET 8 class library (`net8.0`) |
 | Signaling server | ASP.NET Core 10, SignalR hub (`net10.0`) |
 | Desktop app | .NET MAUI 10 Windows (`net10.0-windows10.0.19041.0`) |
-| P2P transport | WebRTC via SIPSorcery 6.2.3 |
+| P2P transport | WebRTC via SIPSorcery 8.0.23 |
 | Local discovery | mDNS via Makaretu.Dns.Multicast 0.27.0 |
 | Signaling client | Microsoft.AspNetCore.SignalR.Client 8.0 |
 | Persistence | EF Core 8.0 + SQLite |
@@ -36,10 +36,16 @@ Edzio/
 │   ├── Edzio.Core/                  # Shared .NET 8 library — no UI dependencies
 │   │   ├── Models/                  # TransferManifest, FileEntry, ChunkInfo (records)
 │   │   ├── Transfer/                # ChunkEngine, TransferSession, ITransferChannel,
-│   │   │                            # TransferMessageType, TransferProgress, TransferException
+│   │   │                            # TransferMessageType, TransferProgress, TransferException,
+│   │   │                            # TransferChannelNegotiator (races LAN-direct vs WebRTC)
 │   │   ├── Persistence/             # TransferDbContext, TransferRepository, EF entities
-│   │   ├── Signaling/               # ISignalingClient, SignalingClient, SignalingMessages
-│   │   ├── WebRtc/                  # WebRtcChannel (ITransferChannel impl), WebRtcRole
+│   │   ├── Signaling/               # ISignalingClient, SignalingClient, SignalingMessages,
+│   │   │                            # IndexedSignalingClient (per-lane demux for MultiWebRtcChannel)
+│   │   ├── Lan/                     # TcpTransferChannel, LanDirect, LanDirectListener —
+│   │   │                            # the same-LAN fast path (TLS over TCP)
+│   │   ├── WebRtc/                  # WebRtcChannel (fallback ITransferChannel impl), WebRtcRole,
+│   │   │                            # MultiWebRtcChannel (stripes across N parallel SCTP
+│   │   │                            # associations for cross-network peers)
 │   │   └── Discovery/               # ILocalDiscovery, MdnsDiscovery, LocalPeer
 │   ├── Edzio.SignalingServer/       # ASP.NET Core minimal API + SignalR
 │   │   ├── Hubs/SignalingHub.cs     # SignalR hub: RegisterReceiver, JoinAsSender, relay methods
@@ -86,7 +92,7 @@ dotnet publish src/Edzio.Desktop/Edzio.Desktop.csproj `
 - File paths in manifests always use forward slashes regardless of OS
 - Desktop pages are created from DI (never `new Page()`) — see AppShell.xaml.cs
 - ViewModels inherit `BaseViewModel : INotifyPropertyChanged` with `SetProperty<T>` helper
-- `TransferMessageType` byte prefix on every ITransferChannel message (0x01–0x05)
+- `TransferMessageType` byte prefix on every ITransferChannel message (0x01–0x09)
 
 ## Key Interfaces
 
@@ -128,11 +134,13 @@ Every `ITransferChannel` message starts with a 1-byte type tag:
 
 | Byte | Type | Payload |
 | ---- | ---- | ------- |
-| `0x01` | Manifest | UTF-8 JSON of `TransferManifest` |
-| `0x02` | Resume | UTF-8 JSON array of `{fileIndex, chunkIndex}` already received |
 | `0x03` | Chunk | 4-byte LE fileIndex + 4-byte LE chunkIndex + raw chunk bytes |
 | `0x04` | Done | empty |
 | `0x05` | Error | UTF-8 error message |
+| `0x06` | ManifestChunk | 4-byte LE totalParts + 4-byte LE partIndex + UTF-8 JSON slice of `TransferManifest` |
+| `0x07` | ResumeChunk | 4-byte LE totalParts + 4-byte LE partIndex + UTF-8 JSON slice of the received-chunk array |
+| `0x08` | FlushMarker | 4-byte LE lane index — end-to-end drain barrier, `MultiWebRtcChannel` only |
+| `0x09` | FlushAck | 4-byte LE lane index — receiver's echo of a `FlushMarker`, `MultiWebRtcChannel` only |
 
 ## Signaling Server Endpoints
 
@@ -148,7 +156,7 @@ Client callbacks (server → client): `OfferReceived(sdp)`, `AnswerReceived(sdp)
 Before committing, verify:
 
 1. `dotnet build Edzio.slnx` — 0 errors
-2. `dotnet test Edzio.slnx` — all tests pass (2 skipped WebRTC integration tests are expected)
+2. `dotnet test Edzio.slnx` — all tests pass (5 skipped tests are expected: WebRTC integration tests + diagnostic/loopback throughput benchmarks)
 
 **Do NOT commit:**
 - `progress.md`

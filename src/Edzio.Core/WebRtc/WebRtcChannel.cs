@@ -173,9 +173,20 @@ public sealed class WebRtcChannel : ITransferChannel
         // ── Now construct the peer connection ────────────────────────────────
         _pc = new RTCPeerConnection(_rtcConfig);
 
-        // Log ICE + connection state transitions — critical for diagnosing hangs
+        // Log ICE + connection state transitions — critical for diagnosing hangs.
+        // Which ICE path won matters for throughput analysis: a relayed (TURN) pair
+        // has very different characteristics from a direct host/srflx pair, and
+        // mistaking one for the other would invalidate any congestion measurement.
         _pc.oniceconnectionstatechange += state =>
+        {
             Log($"[{_role}] ICE connection state → {state}");
+            if (state != RTCIceConnectionState.connected) return;
+
+            var pair = _pc is null ? null : TryGetNominatedIcePair(_pc);
+            Log(pair is null
+                ? $"[{_role}] ICE connected; nominated pair unavailable"
+                : $"[{_role}] ICE nominated pair: local={pair.LocalCandidate?.type} remote={pair.RemoteCandidate?.type}");
+        };
         _pc.onconnectionstatechange += state =>
         {
             Log($"[{_role}] Peer connection state → {state}");
@@ -351,7 +362,32 @@ public sealed class WebRtcChannel : ITransferChannel
         }
     }
 
-    private static object? FindMemberValueByTypeName(object instance, string typeNameFragment)
+    /// <summary>
+    /// Reflection walk: RTCPeerConnection → its private <c>RtpIceChannel</c> →
+    /// the nominated checklist entry, i.e. the candidate pair actually carrying
+    /// traffic. SIPSorcery 8.0.23 exposes no public accessor for the ICE channel,
+    /// so only that first hop is reflective; everything past it is typed.
+    /// Returns null (never throws) if the internals moved or nothing is nominated.
+    /// </summary>
+    internal static ChecklistEntry? TryGetNominatedIcePair(RTCPeerConnection pc)
+    {
+        try
+        {
+            var iceChannel = FindMemberValueByTypeName(pc, "RtpIceChannel") as RtpIceChannel;
+            return iceChannel?.NominatedEntry;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Finds the first field or property on <paramref name="instance"/> whose declared
+    /// type name contains <paramref name="typeNameFragment"/>, and returns its value.
+    /// Matching by type name rather than member name survives upstream renames.
+    /// </summary>
+    internal static object? FindMemberValueByTypeName(object instance, string typeNameFragment)
     {
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
@@ -391,6 +427,12 @@ public sealed class WebRtcChannel : ITransferChannel
         await WaitForSendBufferSpaceAsync(ct);
         _dataChannel!.send(data);
     }
+
+    /// <summary>
+    /// Bytes handed to the data channel that have not yet left the SCTP send queue.
+    /// Zero means this channel has nothing outstanding.
+    /// </summary>
+    internal ulong BufferedAmount => _dataChannel?.bufferedAmount ?? 0;
 
     /// <summary>
     /// Applies backpressure so <see cref="SendAsync"/> doesn't dump an entire large

@@ -35,4 +35,26 @@ public enum TransferMessageType : byte
     /// already-received chunks can also exceed a single message's size limit.
     /// </summary>
     ResumeChunk = 0x07,
+
+    /// <summary>
+    /// Payload: 4-byte LE lane index. Sent by <c>MultiWebRtcChannel.FlushAsync</c> down
+    /// one specific lane, pinned (not through the striping pump), after that lane's
+    /// local SCTP send buffer has drained. Intercepted by the peer's merge loop —
+    /// never surfaces to <see cref="TransferSession"/> — which responds with
+    /// <see cref="FlushAck"/> on the same lane. Because SCTP delivers in order within
+    /// an association, receiving this proves every chunk previously sent on this lane
+    /// has actually left the sender — but not yet that the peer received it; that is
+    /// what the round trip to <see cref="FlushAck"/> proves.
+    /// </summary>
+    FlushMarker = 0x08,
+
+    /// <summary>
+    /// Payload: 4-byte LE lane index, echoed back from the matching
+    /// <see cref="FlushMarker"/>. Proves the peer has received every chunk sent on
+    /// this lane before the marker, closing the gap that local-buffer-only draining
+    /// left open under real network loss (see <c>MultiWebRtcChannel.FlushAsync</c>).
+    /// Intercepted by the sender's merge loop, never surfaces to
+    /// <see cref="TransferSession"/>.
+    /// </summary>
+    FlushAck = 0x09,
 }

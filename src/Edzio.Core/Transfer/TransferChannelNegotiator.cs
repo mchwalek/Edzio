@@ -85,7 +85,9 @@ public static class TransferChannelNegotiator
             signaling.IceCandidateReceived -= handler;
         }
 
-        var webRtcChannel = new WebRtcChannel(rtcConfig, signaling, WebRtcRole.Offerer, logger);
+        // Peers on different networks fall through to WebRTC, where a single SCTP
+        // association is capped near 4380 bytes per RTT. Stripe across several.
+        var webRtcChannel = new MultiWebRtcChannel(rtcConfig, signaling, WebRtcRole.Offerer, logger);
         try
         {
             await webRtcChannel.ConnectAsync(ct);
@@ -112,7 +114,7 @@ public static class TransferChannelNegotiator
         Action<string> log = msg => logger?.LogInformation("{Msg}", msg);
         var listener = LanDirectListener.Start(log: log);
         using var raceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var webRtcChannel = new WebRtcChannel(rtcConfig, signaling, WebRtcRole.Answerer, logger);
+        var webRtcChannel = new MultiWebRtcChannel(rtcConfig, signaling, WebRtcRole.Answerer, logger);
 
         try
         {
@@ -148,7 +150,7 @@ public static class TransferChannelNegotiator
         }
     }
 
-    private static async Task ConnectAndOpenAsync(WebRtcChannel channel, CancellationToken ct)
+    private static async Task ConnectAndOpenAsync(MultiWebRtcChannel channel, CancellationToken ct)
     {
         await channel.ConnectAsync(ct);
         await channel.WaitForOpenAsync(ct);

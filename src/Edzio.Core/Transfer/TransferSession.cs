@@ -234,6 +234,11 @@ public static class TransferSession
                 ChunksTotal:    totalChunks));
         }
 
+        // Barrier before Done. A striping transport may still have chunks queued on a
+        // slower connection; Done overtaking them would make the receiver finalize an
+        // incomplete file. Single-connection transports no-op here.
+        await channel.FlushAsync(ct);
+
         // 6. Send Done
         await channel.SendAsync(BuildDoneMessage(), ct);
 

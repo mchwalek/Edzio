@@ -98,12 +98,21 @@ file sealed class StubChannel : ITransferChannel
     private readonly Queue<byte[]> _receiveQueue;
     public List<byte[]> Sent { get; } = new();
 
+    /// <summary>Index into <see cref="Sent"/> at the moment FlushAsync was called, or -1.</summary>
+    public int SentCountAtFlush { get; private set; } = -1;
+
     public StubChannel(params byte[][] receiveMessages)
     {
         _receiveQueue = new Queue<byte[]>(receiveMessages);
     }
 
     public Task WaitForOpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task FlushAsync(CancellationToken ct = default)
+    {
+        SentCountAtFlush = Sent.Count;
+        return Task.CompletedTask;
+    }
 
     public Task SendAsync(byte[] data, CancellationToken ct = default)
     {
@@ -351,6 +360,42 @@ public class TransferSessionSendTests
             Assert.NotNull(session);
             Assert.Equal(TransferStatus.Completed, session!.Status);
             Assert.Equal(TransferDirection.Send,   session.Direction);
+        }
+        finally
+        {
+            TempFiles.Cleanup(root);
+        }
+    }
+
+    // ── 7. Flush barrier: every chunk is handed over before Done ──────────
+
+    [Fact]
+    public async Task Send_FlushesTheChannelAfterTheLastChunkAndBeforeDone()
+    {
+        var (root, manifest) = await TempFiles.CreateAsync(chunkCount: 3);
+        try
+        {
+            var repo    = TestData.InMemoryRepository();
+            var channel = new StubChannel(MessageHelpers.ResumeMessage()); // no skips
+
+            await TransferSession.SendAsync(root, manifest, channel, repo);
+
+            var doneIndex = channel.Sent.FindIndex(MessageHelpers.IsDone);
+            Assert.True(doneIndex >= 0, "the session must send a Done message");
+
+            Assert.True(channel.SentCountAtFlush >= 0,
+                "TransferSession must flush the channel before sending Done — without the " +
+                "barrier, a striping transport lets Done overtake queued chunks and the " +
+                "receiver finalizes an incomplete file");
+
+            // The flush must land after the final chunk and before Done: at that moment
+            // exactly the manifest plus every chunk had been handed over.
+            Assert.Equal(doneIndex, channel.SentCountAtFlush);
+
+            // And every message before the flush point was a chunk (after the manifest).
+            var beforeFlush = channel.Sent.Take(channel.SentCountAtFlush).Skip(1);
+            Assert.All(beforeFlush, msg => Assert.True(MessageHelpers.IsChunk(msg),
+                "only chunks may precede the flush barrier"));
         }
         finally
         {
