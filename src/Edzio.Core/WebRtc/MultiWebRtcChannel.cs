@@ -53,14 +53,23 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     /// </summary>
     private static readonly TimeSpan FlushBarrierTimeout = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// How long <see cref="ReceiveAsync"/> will wait for an inbound message before
+    /// faulting with a <see cref="TransferException"/>. Used to break SCTP head-of-line
+    /// blocking on ordered channels when chunks are lost.
+    /// </summary>
+    private static readonly TimeSpan ReceiveIdleTimeout = TimeSpan.FromSeconds(30);
+
     private readonly WebRtcChannel[] _lanes;
     private readonly IndexedSignalingClient[] _laneSignaling;
     private readonly ILogger<WebRtcChannel>? _logger;
     private readonly WebRtcRole _role;
+    private readonly ISignalingClient _signaling;
 
     private readonly Channel<byte[]> _outbound;
     private readonly Channel<byte[]> _inbound;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationTokenSource _receiveCts = new();
 
     private Task[] _pumps = [];
     private Task[] _mergers = [];
@@ -102,6 +111,7 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
 
         _role = role;
         _logger = logger;
+        _signaling = signaling;
         _laneSignaling = new IndexedSignalingClient[laneCount];
         _lanes = new WebRtcChannel[laneCount];
 
@@ -136,6 +146,9 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
         Log($"[{_role}] connecting {_lanes.Length} lanes");
         await Task.WhenAll(_lanes.Select(lane => lane.ConnectAsync(ct)));
 
+        // Hook into the signaling peer disconnected event to cancel any active receive
+        _signaling.PeerDisconnected += OnPeerDisconnected;
+        
         _pumps = [.. _lanes.Select(StartPumpAsync)];
         _mergers = [.. _lanes.Select(StartMergeAsync)];
     }
@@ -155,7 +168,41 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
 
     /// <inheritdoc/>
     public Task<byte[]> ReceiveAsync(CancellationToken ct = default) =>
-        _inbound.Reader.ReadAsync(ct).AsTask();
+        ReceiveOrTimeoutAsync(_inbound.Reader, ct, _receiveCts.Token, ReceiveIdleTimeout, Task.Delay);
+
+    /// <summary>
+    /// Waits for the next inbound message, but gives up and throws a
+    /// <see cref="TransferException"/> once <paramref name="idleTimeout"/> elapses
+    /// with no message — breaking SCTP head-of-line blocking on ordered channels
+    /// when chunks are lost. Cancelling <paramref name="ct"/> or
+    /// <paramref name="disconnectedCt"/> (peer disconnected) instead propagates a
+    /// plain <see cref="OperationCanceledException"/>, unwrapped, so callers can
+    /// tell a genuine cancellation apart from a stall. Takes <paramref name="delay"/>
+    /// as a parameter (rather than calling <see cref="Task.Delay(TimeSpan)"/>
+    /// directly) so tests can simulate the timeout elapsing instantly instead of
+    /// waiting out a real 30 seconds, mirroring <see cref="WaitForPumpsOrStallAsync"/>.
+    /// </summary>
+    internal static async Task<byte[]> ReceiveOrTimeoutAsync(
+        ChannelReader<byte[]> inbound,
+        CancellationToken ct,
+        CancellationToken disconnectedCt,
+        TimeSpan idleTimeout,
+        Func<TimeSpan, Task> delay)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, disconnectedCt);
+        var receiveTask = inbound.ReadAsync(linkedCts.Token).AsTask();
+        var timeoutTask = delay(idleTimeout);
+
+        var finished = await Task.WhenAny(receiveTask, timeoutTask);
+        if (finished == receiveTask) return await receiveTask;
+
+        // Unblock the still-pending read; its eventual cancellation is expected
+        // and not observed further.
+        await linkedCts.CancelAsync();
+        throw new TransferException(
+            $"Receive stalled for {idleTimeout.TotalSeconds}s with no inbound messages. " +
+            "This may be due to SCTP ordered delivery blocking on lost chunks.");
+    }
 
     /// <summary>
     /// Waits until every chunk sent on every lane has been received by the peer —
@@ -245,6 +292,9 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
                 "dispose — cancelling and closing anyway.");
         }
 
+        // Unsubscribe from the peer disconnected event to prevent memory leaks
+        _signaling.PeerDisconnected -= OnPeerDisconnected;
+        
         await _lifetime.CancelAsync();
 
         try
@@ -273,6 +323,7 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
 
         _inbound.Writer.TryComplete();
         _lifetime.Dispose();
+        _receiveCts.Dispose();
     }
 
     /// <summary>
@@ -415,4 +466,13 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     }
 
     private void Log(string msg) => _logger?.LogInformation("{Msg}", msg);
+    
+    /// <summary>
+    /// Handles peer disconnection by cancelling any active receive operations.
+    /// </summary>
+    private void OnPeerDisconnected(object? sender, EventArgs e)
+    {
+        Log($"[{_role}] Peer disconnected, cancelling active receive");
+        _receiveCts.Cancel();
+    }
 }
