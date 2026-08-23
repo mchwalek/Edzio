@@ -432,7 +432,8 @@ FodyWeavers.xsd
 progress.md
 PROGRESS.md
 .agent-decisions.md
-docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/specs/
 docs/debug/
 infra/main.json
 
