@@ -176,6 +176,7 @@ public class SendViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
+            EdzioLog.Error("SendVM", "Send failed", ex);
             StatusMessage = $"Error: {ex.Message}";
         }
         finally

@@ -5,11 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="SIPSorcery" Version="8.0.23" />
+    <PackageReference Include="SIPSorcery" Version="10.0.16" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Edzio.Core.Tests" />
