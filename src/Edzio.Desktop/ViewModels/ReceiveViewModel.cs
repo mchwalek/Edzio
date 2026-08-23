@@ -153,6 +153,7 @@ public class ReceiveViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
+            EdzioLog.Error("ReceiveVM", "Receive failed", ex);
             StatusMessage = $"Error: {ex.Message}";
         }
     }
