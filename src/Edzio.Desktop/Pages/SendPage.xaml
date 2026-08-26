@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             xmlns:controls="clr-namespace:Edzio.Desktop.Controls"
              x:Class="Edzio.Desktop.Pages.SendPage"
              x:DataType="vm:SendViewModel"
              Title="Send">
@@ -40,12 +41,7 @@
 
             <Label Text="{Binding StatusMessage}" TextColor="#444" />
 
-            <VerticalStackLayout IsVisible="{Binding ShowProgress}" Spacing="4">
-                <ProgressBar Progress="{Binding ProgressValue}" />
-                <Label Text="{Binding SpeedText}" TextColor="#666" FontSize="13" />
-                <Label Text="{Binding RemainingText}" TextColor="#666" FontSize="13" />
-                <Label Text="{Binding TransferredText}" TextColor="#666" FontSize="13" />
-            </VerticalStackLayout>
+            <controls:TransferProgressView IsVisible="{Binding ShowProgress}" />
 
             <Label Text="Transfer complete!" FontSize="18" TextColor="#107C10"
                    IsVisible="{Binding IsComplete}" HorizontalOptions="Center" />

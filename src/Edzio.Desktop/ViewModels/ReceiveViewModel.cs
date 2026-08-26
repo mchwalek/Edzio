@@ -8,7 +8,7 @@ using SIPSorcery.Net;
 
 namespace Edzio.Desktop.ViewModels;
 
-public class ReceiveViewModel : BaseViewModel
+public class ReceiveViewModel : BaseViewModel, ITransferProgress
 {
     private readonly ISignalingClient _signaling;
     private readonly TransferRepository _repo;
@@ -139,8 +139,10 @@ public class ReceiveViewModel : BaseViewModel
                     : "calculating…";
                 TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
             });
+            var throttledProgress = new ThrottledProgress<TransferProgress>(
+                progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
 
-            await TransferSession.ReceiveAsync(outputRoot, "Sender", channel, _repo, progress, ct);
+            await TransferSession.ReceiveAsync(outputRoot, "Sender", channel, _repo, throttledProgress, ct);
 
             CompletedPath = outputRoot;
             IsComplete = true;

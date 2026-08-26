@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+             x:Class="Edzio.Desktop.Controls.TransferProgressView"
+             x:DataType="vm:ITransferProgress">
+    <!--
+        Shared transfer-progress display used by both SendPage and ReceivePage.
+        Inherits its BindingContext from the host page's ViewModel, which must
+        implement ITransferProgress. Left-aligned (matches the original sender
+        layout); percentage is intentionally omitted here since it already
+        appears once in each page's status line — do not add a second one.
+    -->
+    <VerticalStackLayout Spacing="4">
+        <ProgressBar Progress="{Binding ProgressValue}" />
+        <Label Text="{Binding SpeedText}" TextColor="#666" FontSize="13" MinimumWidthRequest="90" />
+        <Label Text="{Binding RemainingText}" TextColor="#666" FontSize="13" MinimumWidthRequest="110" />
+        <Label Text="{Binding TransferredText}" TextColor="#666" FontSize="13" MinimumWidthRequest="150" />
+    </VerticalStackLayout>
+</ContentView>

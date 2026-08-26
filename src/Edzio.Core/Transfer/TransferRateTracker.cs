@@ -16,7 +16,10 @@ public record TransferRateSnapshot(double BytesPerSecond, double? EtaSeconds);
 /// </summary>
 public class TransferRateTracker
 {
-    private const double SmoothingFactor = 0.3;
+    // ponytail: lower weight than a naive 0.3 because callers now throttle
+    // reports to ~2/sec (see ThrottledProgress); a heavier smooth keeps the
+    // displayed rate stable rather than tracking every instant fluctuation.
+    private const double SmoothingFactor = 0.15;
 
     private DateTimeOffset? _lastSampleTime;
     private long _lastBytes;
