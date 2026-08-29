@@ -73,8 +73,18 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     public string? LocalPeerId
     {
         get => _localPeerId;
-        set { _localPeerId = value; ((Command)SendCommand).ChangeCanExecute(); }
+        set
+        {
+            _localPeerId = value;
+            ((Command)SendCommand).ChangeCanExecute();
+            IsLocalPeerSend = !string.IsNullOrEmpty(value);
+        }
     }
+
+    private bool _isLocalPeerSend;
+
+    /// <summary>True when sending directly to a nearby peer (no pairing code needed); the pairing-code input is hidden in this mode.</summary>
+    public bool IsLocalPeerSend { get => _isLocalPeerSend; private set => SetProperty(ref _isLocalPeerSend, value); }
 
     public ICommand PickFilesCommand { get; }
     public ICommand SendCommand { get; }
@@ -214,7 +224,7 @@ public class SendViewModel : BaseViewModel, ITransferProgress
             var manifest = await TransferManifestBuilder.BuildAsync(sessionId, SelectedPaths);
 
             StatusMessage = $"Connecting to {peer.DisplayName}...";
-            var advertisement = new LanEndpointAdvertisement(new[] { peer.IpAddress }, peer.Port, peer.TokenBase64, peer.CertSha256Hex);
+            var advertisement = new LanEndpointAdvertisement(peer.IpAddresses, peer.Port, peer.TokenBase64, peer.CertSha256Hex);
             await using var channel = await LanDirect.TryConnectAsync(advertisement, TimeSpan.FromSeconds(3));
             if (channel is null) { StatusMessage = $"Could not connect to {peer.DisplayName}."; IsBusy = false; ShowProgress = false; return; }
 
