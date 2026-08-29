@@ -67,8 +67,14 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     /// <summary>Bytes sent so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
     public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
+    private string? _localPeerId;
+
     /// <summary>Instance id of a nearby peer selected from the Home page, set via navigation query string.</summary>
-    public string? LocalPeerId { get; set; }
+    public string? LocalPeerId
+    {
+        get => _localPeerId;
+        set { _localPeerId = value; ((Command)SendCommand).ChangeCanExecute(); }
+    }
 
     public ICommand PickFilesCommand { get; }
     public ICommand SendCommand { get; }
@@ -84,7 +90,8 @@ public class SendViewModel : BaseViewModel, ITransferProgress
         _discovery = discovery;
         Title = "Send";
         PickFilesCommand = new Command(async () => await PickFilesAsync());
-        SendCommand = new Command(async () => await SendAsync(), () => SelectedPaths.Count > 0 && !IsBusy && IsConnectionReady);
+        SendCommand = new Command(async () => await SendAsync(),
+            () => SelectedPaths.Count > 0 && !IsBusy && (IsConnectionReady || !string.IsNullOrEmpty(LocalPeerId)));
 
         ApplyConnectionState(connectionManager.State);
         connectionManager.StateChanged += (_, state) =>
