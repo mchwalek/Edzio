@@ -74,4 +74,23 @@ public class InstantReceiveServiceTests
         secondAccepted.Should().BeFalse();
         offerCount.Should().Be(1);
     }
+
+    [Fact(Timeout = 20000)]
+    public async Task DisposeAsync_WhilePendingDecision_CompletesPromptlyInsteadOfHanging()
+    {
+        var sut = new InstantReceiveService(Loopback);
+        sut.Start();
+        sut.IncomingOffer += (_, _) => { }; // never calls Decide — simulates the app closing mid-prompt
+
+        using var senderCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var senderChannel = await LanDirect.TryConnectAsync(sut.Advertisement!, TimeSpan.FromSeconds(5), ct: senderCts.Token);
+        await InstantSendHandshake.SendOfferAsync(senderChannel!, new TransferOffer("Sender", Array.Empty<TransferOfferFile>()), senderCts.Token);
+
+        // Give the accept loop time to receive the offer and block awaiting the (never-arriving) decision.
+        await Task.Delay(200);
+
+        Func<Task> dispose = () => sut.DisposeAsync().AsTask();
+
+        await dispose.Should().CompleteWithinAsync(TimeSpan.FromSeconds(5));
+    }
 }

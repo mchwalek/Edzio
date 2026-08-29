@@ -84,7 +84,7 @@ public sealed class InstantReceiveService : IAsyncDisposable
 
                 var args = new IncomingOfferEventArgs(offer, channel);
                 IncomingOffer?.Invoke(this, args);
-                var accepted = await args.DecisionTask;
+                var accepted = await args.DecisionTask.WaitAsync(ct);
                 await InstantSendHandshake.SendResponseAsync(channel, accepted, ct);
 
                 if (accepted)
@@ -99,6 +99,10 @@ public sealed class InstantReceiveService : IAsyncDisposable
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                // Disposal was requested — if a channel was accepted but is still awaiting a
+                // decision (or the response send), ownership never transferred to a handler, so
+                // it must be disposed here to avoid leaking the socket.
+                if (channel is not null) await channel.DisposeAsync();
                 break;
             }
             catch (Exception ex)
