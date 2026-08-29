@@ -1,14 +1,10 @@
-﻿using Edzio.Desktop.Services;
-using Microsoft.Maui.Graphics;
+﻿using Edzio.Core.Signaling;
+using Edzio.Desktop.ViewModels;
 
 namespace Edzio.Desktop;
 
 public partial class AppShell : Shell
 {
-    private static readonly Color ColorOnline  = Color.FromArgb("#107C10");
-    private static readonly Color ColorOffline = Color.FromArgb("#C42B1C");
-    private static readonly Color ColorUnknown = Color.FromArgb("#888888");
-
     public AppShell(IServiceProvider services)
     {
         InitializeComponent();
@@ -20,27 +16,18 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("receive",  typeof(Pages.ReceivePage));
         Routing.RegisterRoute("settings", typeof(Pages.SettingsPage));
 
-        // Wire up signaling health indicator
-        var monitor = services.GetRequiredService<SignalingHealthMonitor>();
-        monitor.StatusChanged += (_, _) => UpdateStatusUi(monitor.Status);
-        UpdateStatusUi(monitor.Status); // set initial state
-        monitor.Start();
-    }
+        // Wire up the app-wide connection status bar.
+        BindingContext = services.GetRequiredService<ConnectionStatusViewModel>();
 
-    private void UpdateStatusUi(ServerStatus status)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
+        // Connect to the signaling server eagerly on launch, and reconnect whenever the
+        // user changes the server URL in Settings.
+        var connectionManager = services.GetRequiredService<SignalingConnectionManager>();
+        var settings = services.GetRequiredService<SettingsViewModel>();
+        connectionManager.Start(settings.SignalingServerUrl);
+        settings.PropertyChanged += (_, e) =>
         {
-            (StatusDot.Fill, StatusLabel.Text) = status switch
-            {
-                ServerStatus.Online   => (new SolidColorBrush(ColorOnline),  "Relay: Online"),
-                ServerStatus.Offline  => (new SolidColorBrush(ColorOffline), "Relay: Offline"),
-                ServerStatus.Checking => (new SolidColorBrush(ColorUnknown), "Relay: Checking\u2026"),
-                _                     => (new SolidColorBrush(ColorUnknown), "Relay: Unknown"),
-            };
-        });
+            if (e.PropertyName == nameof(SettingsViewModel.SignalingServerUrl))
+                connectionManager.UpdateUrl(settings.SignalingServerUrl);
+        };
     }
-
-    private async void OnStatusTapped(object? sender, TappedEventArgs e)
-        => await GoToAsync("settings");
 }

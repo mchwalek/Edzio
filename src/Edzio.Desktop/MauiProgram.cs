@@ -40,7 +40,8 @@ public static class MauiProgram
         // Core services
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
         builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
-        builder.Services.AddSingleton<SignalingHealthMonitor>();
+        builder.Services.AddSingleton<SignalingConnectionManager>();
+        builder.Services.AddSingleton<ConnectionStatusViewModel>();
         builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
 
         // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)

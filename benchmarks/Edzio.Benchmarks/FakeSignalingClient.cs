@@ -10,6 +10,8 @@ internal class FakeSignalingClient : ISignalingClient
     public event EventHandler<string> IceCandidateReceived = delegate { };
     public event EventHandler PeerJoined = delegate { };
     public event EventHandler PeerDisconnected = delegate { };
+    public event EventHandler<SignalingConnectionState>? ConnectionStateChanged;
+    public SignalingConnectionState ConnectionState { get; private set; } = SignalingConnectionState.Disconnected;
 
     public event Action<string>? OnOfferSent;
     public event Action<string>? OnAnswerSent;
@@ -22,6 +24,7 @@ internal class FakeSignalingClient : ISignalingClient
     public Task SendAnswerAsync(string sdp, CancellationToken ct = default) { OnAnswerSent?.Invoke(sdp); return Task.CompletedTask; }
     public Task SendIceCandidateAsync(string c, CancellationToken ct = default) { OnIceSent?.Invoke(c); return Task.CompletedTask; }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public Task WaitForConnectedAsync(CancellationToken ct = default) => Task.CompletedTask;
 
     public void SimulateOfferReceived(string sdp) => OfferReceived.Invoke(this, sdp);
     public void SimulateAnswerReceived(string sdp) => AnswerReceived.Invoke(this, sdp);

@@ -3,29 +3,38 @@
        xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
        xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
        xmlns:pages="clr-namespace:Edzio.Desktop.Pages"
+       xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
+       x:DataType="vm:ConnectionStatusViewModel"
        Shell.FlyoutBehavior="Disabled">
 
     <Shell.TitleView>
-        <Grid ColumnDefinitions="*,Auto" VerticalOptions="Center" Padding="0,0,8,0">
-            <!-- App title (left) -->
-            <Label Grid.Column="0" Text="Edzio"
-                   TextColor="White" FontSize="18" FontAttributes="Bold"
-                   VerticalOptions="Center" Margin="8,0,0,0" />
+        <Grid RowDefinitions="Auto,Auto" VerticalOptions="Center">
+            <!-- App title -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Padding="0,0,8,0">
+                <Label Grid.Column="0" Text="Edzio"
+                       TextColor="White" FontSize="18" FontAttributes="Bold"
+                       VerticalOptions="Center" Margin="8,0,0,0" />
+            </Grid>
 
-            <!-- Relay status indicator (right, tappable → Settings) -->
-            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                <HorizontalStackLayout.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnStatusTapped" />
-                </HorizontalStackLayout.GestureRecognizers>
-                <Ellipse x:Name="StatusDot"
-                         WidthRequest="10" HeightRequest="10"
-                         Fill="#888888"
-                         VerticalOptions="Center" />
-                <Label x:Name="StatusLabel"
-                       Text="Relay: Checking…"
-                       TextColor="White" FontSize="12"
-                       VerticalOptions="Center" />
-            </HorizontalStackLayout>
+            <!-- App-wide connection status bar: hidden unless reconnecting or failed -->
+            <Border Grid.Row="1" IsVisible="{Binding IsBarVisible}"
+                    BackgroundColor="{Binding BarColor}"
+                    StrokeThickness="0" Padding="12,6">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                    <ActivityIndicator Grid.Column="0"
+                                        IsVisible="{Binding IsReconnecting}"
+                                        IsRunning="{Binding IsReconnecting}"
+                                        Color="White" WidthRequest="16" HeightRequest="16" />
+                    <Label Grid.Column="1" Text="{Binding Message}"
+                           TextColor="White" VerticalOptions="Center" />
+                    <Button Grid.Column="2" Text="Try again"
+                            IsVisible="{Binding IsFailed}"
+                            Command="{Binding TryAgainCommand}"
+                            BackgroundColor="Transparent" TextColor="White"
+                            BorderColor="White" BorderWidth="1" CornerRadius="6"
+                            Padding="10,2" />
+                </Grid>
+            </Border>
         </Grid>
     </Shell.TitleView>
 

@@ -39,6 +39,11 @@
                     BackgroundColor="#107C10" TextColor="White"
                     HeightRequest="52" CornerRadius="8" />
 
+            <HorizontalStackLayout IsVisible="{Binding IsWaitingForConnection}" Spacing="6">
+                <ActivityIndicator IsRunning="True" Color="#0078D4" WidthRequest="16" HeightRequest="16" />
+                <Label Text="Connecting… you can pick files meanwhile" TextColor="#0078D4" />
+            </HorizontalStackLayout>
+
             <Label Text="{Binding StatusMessage}" />
 
             <controls:TransferProgressView IsVisible="{Binding ShowProgress}" />
