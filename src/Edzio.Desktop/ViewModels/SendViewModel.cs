@@ -16,6 +16,7 @@ namespace Edzio.Desktop.ViewModels;
 public class SendViewModel : BaseViewModel, ITransferProgress
 {
     private readonly ISignalingClient _signaling;
+    private readonly SignalingConnectionManager _connectionManager;
     private readonly TransferRepository _repo;
     private readonly SettingsViewModel _settings;
     private readonly ILogger<WebRtcChannel> _webRtcLogger;
@@ -30,6 +31,8 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     private string _speedText = "—";
     private string _remainingText = "calculating…";
     private string _transferredText = "";
+    private bool _isConnectionReady;
+    private bool _isWaitingForConnection = true;
 
     /// <summary>
     /// The receiver's pairing code. Uppercased live as it is set, so the
@@ -45,6 +48,14 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     public double ProgressValue { get => _progressValue; private set => SetProperty(ref _progressValue, value); }
     public bool ShowProgress { get => _showProgress; private set => SetProperty(ref _showProgress, value); }
     public bool IsComplete { get => _isComplete; private set => SetProperty(ref _isComplete, value); }
+
+    public bool IsConnectionReady
+    {
+        get => _isConnectionReady;
+        private set { SetProperty(ref _isConnectionReady, value); ((Command)SendCommand).ChangeCanExecute(); }
+    }
+
+    public bool IsWaitingForConnection { get => _isWaitingForConnection; private set => SetProperty(ref _isWaitingForConnection, value); }
 
     /// <summary>Current smoothed transfer rate, formatted for display (e.g. "2.4 MB/s").</summary>
     public string SpeedText { get => _speedText; private set => SetProperty(ref _speedText, value); }
@@ -63,16 +74,27 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     public ICommand PickFilesCommand { get; }
     public ICommand SendCommand { get; }
 
-    public SendViewModel(ISignalingClient signaling, TransferRepository repo,
-        SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
+    public SendViewModel(ISignalingClient signaling, SignalingConnectionManager connectionManager,
+        TransferRepository repo, SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
     {
         _signaling = signaling;
+        _connectionManager = connectionManager;
         _repo = repo;
         _settings = settings;
         _webRtcLogger = webRtcLogger;
         Title = "Send";
         PickFilesCommand = new Command(async () => await PickFilesAsync());
-        SendCommand = new Command(async () => await SendAsync(), () => SelectedPaths.Count > 0 && !IsBusy);
+        SendCommand = new Command(async () => await SendAsync(), () => SelectedPaths.Count > 0 && !IsBusy && IsConnectionReady);
+
+        ApplyConnectionState(connectionManager.State);
+        connectionManager.StateChanged += (_, state) =>
+            MainThread.BeginInvokeOnMainThread(() => ApplyConnectionState(state));
+    }
+
+    private void ApplyConnectionState(ConnectionManagerState state)
+    {
+        IsConnectionReady = state == ConnectionManagerState.Connected;
+        IsWaitingForConnection = !IsConnectionReady;
     }
 
     private async Task PickFilesAsync()
@@ -116,10 +138,10 @@ public class SendViewModel : BaseViewModel, ITransferProgress
             var manifest = await TransferManifestBuilder.BuildAsync(sessionId, SelectedPaths);
             EdzioLog.Info("SendVM", $"Manifest built: {manifest.Files.Count} file(s), {manifest.TotalBytes:N0} bytes");
 
-            StatusMessage = "Connecting to signaling server...";
-            EdzioLog.Info("SendVM", $"Connecting to signaling server: {_settings.SignalingServerUrl}");
-            await _signaling.ConnectAsync(_settings.SignalingServerUrl);
-            EdzioLog.Info("SendVM", "Connected to signaling server");
+            StatusMessage = "Waiting for connection...";
+            EdzioLog.Info("SendVM", "Waiting for signaling connection...");
+            await _connectionManager.WaitForConnectedAsync();
+            EdzioLog.Info("SendVM", "Signaling connection ready");
 
             // PairingCode is already uppercased live by the property setter above;
             // ToUpperInvariant() here is a harmless defensive no-op in case the
