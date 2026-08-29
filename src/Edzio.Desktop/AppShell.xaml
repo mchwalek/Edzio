@@ -10,11 +10,10 @@
     <Shell.TitleView>
         <Grid RowDefinitions="Auto,Auto" VerticalOptions="Center">
             <!-- App title -->
-            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Padding="0,0,8,0">
-                <Label Grid.Column="0" Text="Edzio"
-                       TextColor="White" FontSize="18" FontAttributes="Bold"
-                       VerticalOptions="Center" Margin="8,0,0,0" />
-            </Grid>
+            <Label Grid.Row="0" Text="Edzio"
+                   TextColor="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource SecondaryDarkText}}"
+                   FontSize="18" FontAttributes="Bold"
+                   VerticalOptions="Center" Margin="8,0,0,0" />
 
             <!-- App-wide connection status bar: hidden unless reconnecting or failed -->
             <Border Grid.Row="1" IsVisible="{Binding IsBarVisible}"
