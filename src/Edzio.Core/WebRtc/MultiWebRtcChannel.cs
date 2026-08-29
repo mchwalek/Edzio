@@ -323,7 +323,14 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
 
         _inbound.Writer.TryComplete();
         _lifetime.Dispose();
-        _receiveCts.Dispose();
+
+        // ponytail: _receiveCts is intentionally never disposed. Disposing it here
+        // raced ReceiveAsync (line ~171, reads _receiveCts.Token) and
+        // OnPeerDisconnected (below, calls _receiveCts.Cancel()) — both still
+        // reachable during/after teardown — throwing ObjectDisposedException where
+        // callers expect OperationCanceledException. It carries no unmanaged
+        // resources (never linked to a timer or another token), so leaving it for
+        // the GC is safe.
     }
 
     /// <summary>
@@ -473,6 +480,14 @@ internal sealed class MultiWebRtcChannel : ITransferChannel
     private void OnPeerDisconnected(object? sender, EventArgs e)
     {
         Log($"[{_role}] Peer disconnected, cancelling active receive");
-        _receiveCts.Cancel();
+        try
+        {
+            _receiveCts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Unsubscribed in DisposeAsync before teardown, but a dispatch already
+            // in flight can still land here — harmless once dispose has started.
+        }
     }
 }
