@@ -3,6 +3,7 @@ using CommunityToolkit.Maui.Storage;
 using Edzio.Core.Discovery;
 using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
+using Edzio.Core.Transfer;
 using Edzio.Desktop.Pages;
 using Edzio.Desktop.Services;
 using Edzio.Desktop.ViewModels;
@@ -40,7 +41,9 @@ public static class MauiProgram
 
         // Core services
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
-        builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
+        builder.Services.AddSingleton<MdnsDiscovery>(sp => new MdnsDiscovery());
+        builder.Services.AddSingleton<ILocalDiscovery>(sp => sp.GetRequiredService<MdnsDiscovery>());
+        builder.Services.AddSingleton<InstantReceiveService>();
         builder.Services.AddSingleton<SignalingConnectionManager>();
         builder.Services.AddSingleton<ConnectionStatusViewModel>();
         builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
