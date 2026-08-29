@@ -431,6 +431,7 @@ FodyWeavers.xsd
 # Edzio — never commit these
 progress.md
 PROGRESS.md
+DECISIONS.md
 .agent-decisions.md
 docs/superpowers/*
 !docs/superpowers/specs/
