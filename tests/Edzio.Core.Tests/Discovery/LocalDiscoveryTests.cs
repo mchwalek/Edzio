@@ -5,15 +5,15 @@ namespace Edzio.Core.Tests.Discovery;
 public class LocalDiscoveryTests {
     [Fact]
     public void LocalPeer_RecordEquality_Works() {
-        var a = new LocalPeer("Alice", "192.168.1.5", 7777);
-        var b = new LocalPeer("Alice", "192.168.1.5", 7777);
+        var a = new LocalPeer("Alice", new[] { "192.168.1.5" }, 7777);
+        var b = new LocalPeer("Alice", new[] { "192.168.1.5" }, 7777);
         a.Should().Be(b);
     }
 
     [Fact]
     public void LocalPeer_DifferentIp_NotEqual() {
-        var a = new LocalPeer("Alice", "192.168.1.5", 7777);
-        var b = new LocalPeer("Alice", "192.168.1.6", 7777);
+        var a = new LocalPeer("Alice", new[] { "192.168.1.5" }, 7777);
+        var b = new LocalPeer("Alice", new[] { "192.168.1.6" }, 7777);
         a.Should().NotBe(b);
     }
 
@@ -29,7 +29,7 @@ public class LocalDiscoveryTests {
         IReadOnlyList<LocalPeer>? eventPeers = null;
         fake.PeersChanged += (_, peers) => eventPeers = peers;
 
-        var peer = new LocalPeer("Bob", "10.0.0.1", 7777);
+        var peer = new LocalPeer("Bob", new[] { "10.0.0.1" }, 7777);
         fake.SimulateDiscovery(peer);
 
         fake.DiscoveredPeers.Should().ContainSingle().Which.Should().Be(peer);

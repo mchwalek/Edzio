@@ -53,7 +53,41 @@ public class MdnsDiscoveryTests
         sut.OnServiceInstanceDiscovered(null, args);
 
         sut.DiscoveredPeers.Should().ContainSingle().Which.Should().Be(
-            new LocalPeer("OtherPeer", "192.168.1.50", 7777, "other-instance-id", "abc123", "dG9rZW4="));
+            new LocalPeer("OtherPeer", new[] { "192.168.1.50" }, 7777, "other-instance-id", "abc123", "dG9rZW4="));
+    }
+
+    [Fact]
+    public void OnServiceInstanceDiscovered_MultipleAddressRecords_CollectsAllAddresses()
+    {
+        // A peer with several network interfaces advertises one AddressRecord per interface.
+        // Some may be unroutable (virtual adapters, link-local) — all must be kept so the
+        // sender can race every one of them via LanDirect.TryConnectAsync.
+        var sut = new MdnsDiscovery("MyPeer");
+        var message = new Message();
+        message.Answers.Add(new SRVRecord { Port = 7777 });
+        message.Answers.Add(new TXTRecord
+        {
+            Strings = new List<string>
+            {
+                "displayName=OtherPeer",
+                "instanceId=other-instance-id",
+                "certSha256=abc123",
+                "token=dG9rZW4=",
+            },
+        });
+        message.Answers.Add(new ARecord { Address = System.Net.IPAddress.Parse("192.168.1.50") });
+        message.Answers.Add(new ARecord { Address = System.Net.IPAddress.Parse("172.20.192.1") });
+        message.Answers.Add(new ARecord { Address = System.Net.IPAddress.Parse("169.254.1.2") });
+        var args = new ServiceInstanceDiscoveryEventArgs
+        {
+            ServiceInstanceName = new DomainName("OtherPeer._edzio._tcp.local"),
+            Message = message,
+        };
+
+        sut.OnServiceInstanceDiscovered(null, args);
+
+        sut.DiscoveredPeers.Should().ContainSingle().Which.IpAddresses.Should().Equal(
+            "192.168.1.50", "172.20.192.1", "169.254.1.2");
     }
 
     [Fact]
@@ -121,7 +155,7 @@ public class MdnsDiscoveryTests
         sut.OnServiceInstanceDiscovered(null, args);
 
         sut.DiscoveredPeers.Should().ContainSingle().Which.Should().Be(
-            new LocalPeer("OtherPeer", "192.168.1.50", 7777, "other-instance-id", "abc123", "dG9rZW4="));
+            new LocalPeer("OtherPeer", new[] { "192.168.1.50" }, 7777, "other-instance-id", "abc123", "dG9rZW4="));
     }
 
     [Fact]

@@ -41,7 +41,7 @@ public static class MauiProgram
 
         // Core services
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
-        builder.Services.AddSingleton<MdnsDiscovery>(sp => new MdnsDiscovery());
+        builder.Services.AddSingleton<MdnsDiscovery>(sp => new MdnsDiscovery(log: msg => EdzioLog.Info("Mdns", msg)));
         builder.Services.AddSingleton<ILocalDiscovery>(sp => sp.GetRequiredService<MdnsDiscovery>());
         builder.Services.AddSingleton<InstantReceiveService>();
         builder.Services.AddSingleton<Services.IncomingTransferCoordinator>();
