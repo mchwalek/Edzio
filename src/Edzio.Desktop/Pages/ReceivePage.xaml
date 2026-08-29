@@ -10,6 +10,16 @@
         <VerticalStackLayout Padding="24" Spacing="16" VerticalOptions="Center">
             <Label Text="Receive Files" FontSize="24" FontAttributes="Bold" HorizontalOptions="Center" />
 
+            <!-- Waiting for the signaling connection -->
+            <VerticalStackLayout IsVisible="{Binding IsConnectingToServer}" Spacing="8">
+                <Label Text="– – – – – –" FontSize="52" FontAttributes="Bold"
+                       HorizontalOptions="Center" TextColor="#CCCCCC" CharacterSpacing="6" />
+                <HorizontalStackLayout HorizontalOptions="Center" Spacing="6">
+                    <ActivityIndicator IsRunning="True" Color="#0078D4" WidthRequest="16" HeightRequest="16" />
+                    <Label Text="Getting you a code…" TextColor="#0078D4" />
+                </HorizontalStackLayout>
+            </VerticalStackLayout>
+
             <!-- Pairing code display -->
             <VerticalStackLayout IsVisible="{Binding ShowCode}" Spacing="8">
                 <Label Text="Share this code with the sender:" HorizontalOptions="Center" />

@@ -11,6 +11,7 @@ namespace Edzio.Desktop.ViewModels;
 public class ReceiveViewModel : BaseViewModel, ITransferProgress
 {
     private readonly ISignalingClient _signaling;
+    private readonly SignalingConnectionManager _connectionManager;
     private readonly TransferRepository _repo;
     private readonly SettingsViewModel _settings;
     private readonly ILogger<WebRtcChannel> _webRtcLogger;
@@ -21,7 +22,8 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     private bool _showCode = false;
     private bool _showProgress = false;
     private bool _isComplete = false;
-    private bool _showInitialStatus = true;
+    private bool _showInitialStatus = false;
+    private bool _isConnectingToServer = true;
     private string? _completedPath;
     private string _speedText = "—";
     private string _remainingText = "calculating…";
@@ -41,6 +43,12 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     {
         get => _showProgress;
         private set { SetProperty(ref _showProgress, value); RefreshInitialStatusVisibility(); }
+    }
+
+    public bool IsConnectingToServer
+    {
+        get => _isConnectingToServer;
+        private set { SetProperty(ref _isConnectingToServer, value); RefreshInitialStatusVisibility(); }
     }
 
     public bool IsComplete
@@ -67,25 +75,28 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     /// <summary>Bytes received so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
     public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
-    public ReceiveViewModel(ISignalingClient signaling, TransferRepository repo,
-        SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
+    public ReceiveViewModel(ISignalingClient signaling, SignalingConnectionManager connectionManager,
+        TransferRepository repo, SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
     {
         _signaling = signaling;
+        _connectionManager = connectionManager;
         _repo = repo;
         _settings = settings;
         _webRtcLogger = webRtcLogger;
     }
 
     private void RefreshInitialStatusVisibility()
-        => ShowInitialStatus = !ShowCode && !ShowProgress && !IsComplete;
+        => ShowInitialStatus = !IsConnectingToServer && !ShowCode && !ShowProgress && !IsComplete;
 
     public async Task StartAsync(CancellationToken ct = default)
     {
         try
         {
-            EdzioLog.Info("ReceiveVM", $"Connecting to signaling server: {_settings.SignalingServerUrl}");
-            await _signaling.ConnectAsync(_settings.SignalingServerUrl, ct);
-            EdzioLog.Info("ReceiveVM", "Connected to signaling server");
+            IsConnectingToServer = true;
+            EdzioLog.Info("ReceiveVM", "Waiting for signaling connection...");
+            await _connectionManager.WaitForConnectedAsync(ct);
+            IsConnectingToServer = false;
+            EdzioLog.Info("ReceiveVM", "Signaling connection ready");
 
             PairingCode = await _signaling.RegisterAsReceiverAsync(ct);
             EdzioLog.Info("ReceiveVM", $"Registered as receiver, code: {PairingCode}");
