@@ -7,7 +7,12 @@
              x:DataType="vm:HomeViewModel"
              Title="Edzio">
     <VerticalStackLayout Padding="24" Spacing="16">
-        <Label Text="Edzio" FontSize="32" FontAttributes="Bold" HorizontalOptions="Center" />
+        <Button Text="&#xe270;" Command="{Binding SettingsCommand}"
+                ToolTipProperties.Text="Settings"
+                FontFamily="PhosphorFill" FontSize="22"
+                BackgroundColor="Transparent" TextColor="#666666"
+                WidthRequest="40" HeightRequest="40" Padding="0"
+                HorizontalOptions="End" />
         <Button Text="Receive" Command="{Binding ReceiveCommand}"
                 FontSize="18" HeightRequest="56" BackgroundColor="#0078D4" TextColor="White" CornerRadius="8" />
         <Button Text="Send via code" Command="{Binding SendCommand}"
@@ -26,7 +31,5 @@
                 </DataTemplate>
             </CollectionView.ItemTemplate>
         </CollectionView>
-        <Button Text="Settings" Command="{Binding SettingsCommand}"
-                HorizontalOptions="End" BackgroundColor="Transparent" TextColor="#666666" />
     </VerticalStackLayout>
 </ContentPage>
