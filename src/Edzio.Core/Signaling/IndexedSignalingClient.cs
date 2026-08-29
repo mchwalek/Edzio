@@ -58,6 +58,19 @@ internal sealed class IndexedSignalingClient : ISignalingClient
         _inner.ConnectAsync(serverUrl, ct);
 
     /// <inheritdoc />
+    public SignalingConnectionState ConnectionState => _inner.ConnectionState;
+
+    /// <inheritdoc />
+    public event EventHandler<SignalingConnectionState> ConnectionStateChanged
+    {
+        add => _inner.ConnectionStateChanged += value;
+        remove => _inner.ConnectionStateChanged -= value;
+    }
+
+    /// <inheritdoc />
+    public Task WaitForConnectedAsync(CancellationToken ct = default) => _inner.WaitForConnectedAsync(ct);
+
+    /// <inheritdoc />
     public Task<string> RegisterAsReceiverAsync(CancellationToken ct = default) =>
         _inner.RegisterAsReceiverAsync(ct);
 

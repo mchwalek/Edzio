@@ -5,6 +5,7 @@ namespace Edzio.Core.Signaling;
 
 public sealed class SignalingClient : ISignalingClient
 {
+    private readonly ConnectionStateTracker _stateTracker = new();
     private HubConnection? _connection;
     private readonly ILogger<SignalingClient>? _logger;
 
@@ -14,49 +15,96 @@ public sealed class SignalingClient : ISignalingClient
     public event EventHandler PeerJoined = delegate { };
     public event EventHandler PeerDisconnected = delegate { };
 
+    public SignalingConnectionState ConnectionState => _stateTracker.State;
+
+    public event EventHandler<SignalingConnectionState> ConnectionStateChanged
+    {
+        add => _stateTracker.Changed += value;
+        remove => _stateTracker.Changed -= value;
+    }
+
     public SignalingClient(ILogger<SignalingClient>? logger = null) => _logger = logger;
 
     public async Task ConnectAsync(string serverUrl, CancellationToken ct = default)
     {
+        _stateTracker.TransitionTo(SignalingConnectionState.Connecting);
+
+        // Dispose any previous connection before creating a new one. Without this, a
+        // caller that retries ConnectAsync after a failure (e.g. SignalingConnectionManager)
+        // would leak a HubConnection on every attempt.
+        if (_connection is not null)
+        {
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
+
         _logger?.LogInformation("Connecting to {Url}", serverUrl.TrimEnd('/') + "/signaling");
-        _connection = new HubConnectionBuilder()
+        var connection = new HubConnectionBuilder()
             .WithUrl(serverUrl.TrimEnd('/') + "/signaling")
             .WithAutomaticReconnect()
             .Build();
 
-        _connection.On<string>(SignalingEvents.OfferReceived, sdp =>
+        connection.On<string>(SignalingEvents.OfferReceived, sdp =>
         {
             _logger?.LogInformation("← OfferReceived (sdp length={Len})", sdp.Length);
             OfferReceived?.Invoke(this, sdp);
         });
-        _connection.On<string>(SignalingEvents.AnswerReceived, sdp =>
+        connection.On<string>(SignalingEvents.AnswerReceived, sdp =>
         {
             _logger?.LogInformation("← AnswerReceived (sdp length={Len})", sdp.Length);
             AnswerReceived?.Invoke(this, sdp);
         });
-        _connection.On<string>(SignalingEvents.IceCandidateReceived, c =>
+        connection.On<string>(SignalingEvents.IceCandidateReceived, c =>
         {
             _logger?.LogInformation("← IceCandidateReceived: {C}", c);
             IceCandidateReceived?.Invoke(this, c);
         });
-        _connection.On(SignalingEvents.PeerJoined, () =>
+        connection.On(SignalingEvents.PeerJoined, () =>
         {
             _logger?.LogInformation("← PeerJoined");
             PeerJoined?.Invoke(this, EventArgs.Empty);
         });
-        _connection.On(SignalingEvents.PeerDisconnected, () =>
+        connection.On(SignalingEvents.PeerDisconnected, () =>
         {
             _logger?.LogInformation("← PeerDisconnected");
             PeerDisconnected?.Invoke(this, EventArgs.Empty);
         });
 
-        _connection.Reconnecting += ex => { _logger?.LogWarning("SignalR reconnecting: {Ex}", ex?.Message); return Task.CompletedTask; };
-        _connection.Reconnected += id => { _logger?.LogInformation("SignalR reconnected, connectionId={Id}", id); return Task.CompletedTask; };
-        _connection.Closed += ex => { _logger?.LogWarning("SignalR connection closed: {Ex}", ex?.Message); return Task.CompletedTask; };
+        connection.Reconnecting += ex =>
+        {
+            _logger?.LogWarning("SignalR reconnecting: {Ex}", ex?.Message);
+            _stateTracker.TransitionTo(SignalingConnectionState.Reconnecting);
+            return Task.CompletedTask;
+        };
+        connection.Reconnected += id =>
+        {
+            _logger?.LogInformation("SignalR reconnected, connectionId={Id}", id);
+            _stateTracker.TransitionTo(SignalingConnectionState.Connected);
+            return Task.CompletedTask;
+        };
+        connection.Closed += ex =>
+        {
+            _logger?.LogWarning("SignalR connection closed: {Ex}", ex?.Message);
+            _stateTracker.TransitionTo(SignalingConnectionState.Disconnected);
+            return Task.CompletedTask;
+        };
 
-        await _connection.StartAsync(ct);
-        _logger?.LogInformation("SignalR connected, connectionId={Id}", _connection.ConnectionId);
+        _connection = connection;
+
+        try
+        {
+            await connection.StartAsync(ct);
+            _logger?.LogInformation("SignalR connected, connectionId={Id}", connection.ConnectionId);
+            _stateTracker.TransitionTo(SignalingConnectionState.Connected);
+        }
+        catch
+        {
+            _stateTracker.TransitionTo(SignalingConnectionState.Disconnected);
+            throw;
+        }
     }
+
+    public Task WaitForConnectedAsync(CancellationToken ct = default) => _stateTracker.WaitForConnectedAsync(ct);
 
     public Task SendOfferAsync(string sdp, CancellationToken ct = default)
     {

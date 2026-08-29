@@ -112,6 +112,9 @@ interface ISignalingClient : IAsyncDisposable {
     Task SendOfferAsync(string sdp, CancellationToken ct = default);
     Task SendAnswerAsync(string sdp, CancellationToken ct = default);
     Task SendIceCandidateAsync(string candidateJson, CancellationToken ct = default);
+    SignalingConnectionState ConnectionState { get; }
+    event EventHandler<SignalingConnectionState> ConnectionStateChanged;
+    Task WaitForConnectedAsync(CancellationToken ct = default);
     event EventHandler<string> OfferReceived;
     event EventHandler<string> AnswerReceived;
     event EventHandler<string> IceCandidateReceived;

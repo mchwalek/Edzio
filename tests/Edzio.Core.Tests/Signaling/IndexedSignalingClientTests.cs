@@ -134,6 +134,10 @@ public class IndexedSignalingClientTests
         public Task SendAnswerAsync(string sdp, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendIceCandidateAsync(string candidateJson, CancellationToken ct = default) => Task.CompletedTask;
 
+        public SignalingConnectionState ConnectionState => SignalingConnectionState.Disconnected;
+        public event EventHandler<SignalingConnectionState> ConnectionStateChanged { add { } remove { } }
+        public Task WaitForConnectedAsync(CancellationToken ct = default) => Task.CompletedTask;
+
         public event EventHandler<string> OfferReceived = delegate { };
         public event EventHandler<string> AnswerReceived = delegate { };
         public event EventHandler<string> IceCandidateReceived = delegate { };
