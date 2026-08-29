@@ -44,6 +44,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<MdnsDiscovery>(sp => new MdnsDiscovery());
         builder.Services.AddSingleton<ILocalDiscovery>(sp => sp.GetRequiredService<MdnsDiscovery>());
         builder.Services.AddSingleton<InstantReceiveService>();
+        builder.Services.AddSingleton<Services.IncomingTransferCoordinator>();
         builder.Services.AddSingleton<SignalingConnectionManager>();
         builder.Services.AddSingleton<ConnectionStatusViewModel>();
         builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
