@@ -13,7 +13,7 @@ namespace Edzio.Desktop.ViewModels;
 [QueryProperty(nameof(LocalPeerIp), "localPeerIp")]
 [QueryProperty(nameof(LocalPeerPort), "localPeerPort")]
 [QueryProperty(nameof(LocalPeerName), "localPeerName")]
-public class SendViewModel : BaseViewModel
+public class SendViewModel : BaseViewModel, ITransferProgress
 {
     private readonly ISignalingClient _signaling;
     private readonly TransferRepository _repo;
@@ -168,8 +168,10 @@ public class SendViewModel : BaseViewModel
                     : "calculating…";
                 TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
             });
+            var throttledProgress = new ThrottledProgress<TransferProgress>(
+                progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
 
-            await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, progress);
+            await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, throttledProgress);
             IsComplete = true;
             ShowProgress = false;
             StatusMessage = "Sent successfully!";
