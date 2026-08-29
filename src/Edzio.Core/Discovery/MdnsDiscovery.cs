@@ -87,7 +87,7 @@ public sealed class MdnsDiscovery : ILocalDiscovery
         string instanceId = "";
         string certSha256Hex = "";
         string tokenBase64 = "";
-        foreach (var record in e.Message.Answers)
+        foreach (var record in e.Message.Answers.Concat(e.Message.AdditionalRecords))
         {
             if (record is SRVRecord srv) port = srv.Port;
             if (record is TXTRecord txt)
@@ -119,10 +119,12 @@ public sealed class MdnsDiscovery : ILocalDiscovery
         if (removed) PeersChanged?.Invoke(this, DiscoveredPeers);
     }
 
+    private static readonly string ServiceInstanceSuffix = $"._{ServiceType.TrimStart('_')}.local";
+
     private static bool IsEdzioInstance(DomainName serviceInstanceName, out string key)
     {
         key = serviceInstanceName.ToString();
-        return key.EndsWith("._edzio._tcp.local", StringComparison.OrdinalIgnoreCase);
+        return key.EndsWith(ServiceInstanceSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />

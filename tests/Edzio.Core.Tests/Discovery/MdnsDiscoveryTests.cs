@@ -92,6 +92,39 @@ public class MdnsDiscoveryTests
     }
 
     [Fact]
+    public void OnServiceInstanceDiscovered_GlueRecordsInAdditionalRecords_IsAdded()
+    {
+        // Real-world mDNS: per-instance PTR responses put the SRV/TXT/Address glue records in
+        // AdditionalRecords, not Answers (ServiceDiscovery.AnswersContainsAdditionalRecords defaults
+        // to false and MdnsDiscovery never sets it true).
+        var sut = new MdnsDiscovery("MyPeer");
+        var message = new Message();
+        message.Answers.Add(new PTRRecord { DomainName = new DomainName("OtherPeer._edzio._tcp.local") });
+        message.AdditionalRecords.Add(new SRVRecord { Port = 7777 });
+        message.AdditionalRecords.Add(new TXTRecord
+        {
+            Strings = new List<string>
+            {
+                "displayName=OtherPeer",
+                "instanceId=other-instance-id",
+                "certSha256=abc123",
+                "token=dG9rZW4=",
+            },
+        });
+        message.AdditionalRecords.Add(new ARecord { Address = System.Net.IPAddress.Parse("192.168.1.50") });
+        var args = new ServiceInstanceDiscoveryEventArgs
+        {
+            ServiceInstanceName = new DomainName("OtherPeer._edzio._tcp.local"),
+            Message = message,
+        };
+
+        sut.OnServiceInstanceDiscovered(null, args);
+
+        sut.DiscoveredPeers.Should().ContainSingle().Which.Should().Be(
+            new LocalPeer("OtherPeer", "192.168.1.50", 7777, "other-instance-id", "abc123", "dG9rZW4="));
+    }
+
+    [Fact]
     public void OnServiceInstanceDiscovered_FiresPeersChangedWithFullSnapshot()
     {
         var sut = new MdnsDiscovery("MyPeer");
