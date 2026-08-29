@@ -23,8 +23,7 @@ public class HomeViewModel : BaseViewModel
         SendCommand = new Command(async () => await Shell.Current.GoToAsync("send"));
         SettingsCommand = new Command(async () => await Shell.Current.GoToAsync("settings"));
         SendToLocalPeerCommand = new Command<LocalPeer>(async peer =>
-            await Shell.Current.GoToAsync(
-                $"send?localPeerIp={Uri.EscapeDataString(peer.IpAddress)}&localPeerPort={peer.Port}&localPeerName={Uri.EscapeDataString(peer.DisplayName)}"));
+            await Shell.Current.GoToAsync($"send?localPeerId={Uri.EscapeDataString(peer.InstanceId)}"));
 
         _discovery.PeersChanged += (_, peers) =>
             MainThread.BeginInvokeOnMainThread(() =>
@@ -34,6 +33,8 @@ public class HomeViewModel : BaseViewModel
             });
     }
 
-    public async Task OnAppearingAsync() => await _discovery.StartAsync();
-    public async Task OnDisappearingAsync() => await _discovery.StopAsync();
+    // Discovery now runs app-wide from launch via IncomingTransferCoordinator; these are kept as
+    // no-ops because HomePage.xaml.cs calls them from page lifecycle overrides.
+    public Task OnAppearingAsync() => Task.CompletedTask;
+    public Task OnDisappearingAsync() => Task.CompletedTask;
 }
