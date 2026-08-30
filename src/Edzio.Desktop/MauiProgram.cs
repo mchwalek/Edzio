@@ -3,6 +3,7 @@ using CommunityToolkit.Maui.Storage;
 using Edzio.Core.Discovery;
 using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
+using Edzio.Core.Transfer;
 using Edzio.Desktop.Pages;
 using Edzio.Desktop.Services;
 using Edzio.Desktop.ViewModels;
@@ -40,16 +41,20 @@ public static class MauiProgram
 
         // Core services
         builder.Services.AddSingleton<ISignalingClient, SignalingClient>();
-        builder.Services.AddSingleton<ILocalDiscovery>(sp => new MdnsDiscovery());
+        builder.Services.AddSingleton<MdnsDiscovery>(sp => new MdnsDiscovery(log: msg => EdzioLog.Info("Mdns", msg)));
+        builder.Services.AddSingleton<ILocalDiscovery>(sp => sp.GetRequiredService<MdnsDiscovery>());
+        builder.Services.AddSingleton<InstantReceiveService>();
+        builder.Services.AddSingleton<Services.IncomingTransferCoordinator>();
         builder.Services.AddSingleton<SignalingConnectionManager>();
         builder.Services.AddSingleton<ConnectionStatusViewModel>();
         builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
 
-        // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)
+        // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs;
+        // ReceiveViewModel is singleton so IncomingTransferCoordinator can drive its progress UI for instant receives)
         builder.Services.AddSingleton<SettingsViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<SendViewModel>();
-        builder.Services.AddTransient<ReceiveViewModel>();
+        builder.Services.AddSingleton<ReceiveViewModel>();
 
         // Shell (singleton — only one instance ever needed)
         builder.Services.AddSingleton<AppShell>();

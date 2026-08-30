@@ -3,9 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Edzio.Desktop.ViewModels"
              xmlns:controls="clr-namespace:Edzio.Desktop.Controls"
+             xmlns:converters="clr-namespace:Edzio.Desktop.Converters"
              x:Class="Edzio.Desktop.Pages.SendPage"
              x:DataType="vm:SendViewModel"
              Title="Send">
+    <ContentPage.Resources>
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+    </ContentPage.Resources>
     <ScrollView>
         <ScrollView.GestureRecognizers>
             <DropGestureRecognizer AllowDrop="True" Drop="OnDrop" />
@@ -29,11 +33,13 @@
 
             <BoxView HeightRequest="1" BackgroundColor="#DDD" Margin="0,8" />
 
-            <Label Text="Receiver's code:" FontAttributes="Bold" />
+            <Label Text="Receiver's code:" FontAttributes="Bold" IsVisible="{Binding IsLocalPeerSend, Converter={StaticResource InverseBoolConverter}}" />
             <Entry Text="{Binding PairingCode}"
                    Placeholder="Enter code from receiver (e.g. MAPLE7)"
                    FontSize="22" FontAttributes="Bold"
-                   MaxLength="6" />
+                   MaxLength="6"
+                   ReturnCommand="{Binding SendCommand}"
+                   IsVisible="{Binding IsLocalPeerSend, Converter={StaticResource InverseBoolConverter}}" />
 
             <Button Text="Send Now" Command="{Binding SendCommand}"
                     BackgroundColor="#107C10" TextColor="White"

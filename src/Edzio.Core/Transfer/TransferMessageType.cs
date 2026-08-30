@@ -57,4 +57,10 @@ public enum TransferMessageType : byte
     /// <see cref="TransferSession"/>.
     /// </summary>
     FlushAck = 0x09,
+
+    /// <summary>Sender's transfer offer: sender name and file list, sent before any manifest/chunk data. Payload: UTF-8 JSON of <see cref="TransferOffer"/>.</summary>
+    Offer = 0x0A,
+
+    /// <summary>Receiver's accept/decline response to an <see cref="Offer"/>. Payload: 1 byte, 1 = accept, 0 = decline.</summary>
+    OfferResponse = 0x0B,
 }

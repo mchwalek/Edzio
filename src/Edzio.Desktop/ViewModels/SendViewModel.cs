@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using Edzio.Core.Discovery;
+using Edzio.Core.Lan;
 using Edzio.Core.Persistence;
 using Edzio.Core.Signaling;
 using Edzio.Core.Transfer;
@@ -10,9 +12,7 @@ using SIPSorcery.Net;
 
 namespace Edzio.Desktop.ViewModels;
 
-[QueryProperty(nameof(LocalPeerIp), "localPeerIp")]
-[QueryProperty(nameof(LocalPeerPort), "localPeerPort")]
-[QueryProperty(nameof(LocalPeerName), "localPeerName")]
+[QueryProperty(nameof(LocalPeerId), "localPeerId")]
 public class SendViewModel : BaseViewModel, ITransferProgress
 {
     private readonly ISignalingClient _signaling;
@@ -20,6 +20,7 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     private readonly TransferRepository _repo;
     private readonly SettingsViewModel _settings;
     private readonly ILogger<WebRtcChannel> _webRtcLogger;
+    private readonly ILocalDiscovery _discovery;
 
     public ObservableCollection<string> SelectedPaths { get; } = new();
 
@@ -66,25 +67,41 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     /// <summary>Bytes sent so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
     public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
-    // Query properties for local peer navigation
-    public string? LocalPeerIp { set { /* store for future local peer support */ } }
-    public string? LocalPeerPort { set { /* store for future local peer support */ } }
-    public string? LocalPeerName { set { /* store for future local peer support */ } }
+    private string? _localPeerId;
+
+    /// <summary>Instance id of a nearby peer selected from the Home page, set via navigation query string.</summary>
+    public string? LocalPeerId
+    {
+        get => _localPeerId;
+        set
+        {
+            _localPeerId = value;
+            ((Command)SendCommand).ChangeCanExecute();
+            IsLocalPeerSend = !string.IsNullOrEmpty(value);
+        }
+    }
+
+    private bool _isLocalPeerSend;
+
+    /// <summary>True when sending directly to a nearby peer (no pairing code needed); the pairing-code input is hidden in this mode.</summary>
+    public bool IsLocalPeerSend { get => _isLocalPeerSend; private set => SetProperty(ref _isLocalPeerSend, value); }
 
     public ICommand PickFilesCommand { get; }
     public ICommand SendCommand { get; }
 
     public SendViewModel(ISignalingClient signaling, SignalingConnectionManager connectionManager,
-        TransferRepository repo, SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
+        TransferRepository repo, SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger, ILocalDiscovery discovery)
     {
         _signaling = signaling;
         _connectionManager = connectionManager;
         _repo = repo;
         _settings = settings;
         _webRtcLogger = webRtcLogger;
+        _discovery = discovery;
         Title = "Send";
         PickFilesCommand = new Command(async () => await PickFilesAsync());
-        SendCommand = new Command(async () => await SendAsync(), () => SelectedPaths.Count > 0 && !IsBusy && IsConnectionReady);
+        SendCommand = new Command(async () => await SendAsync(),
+            () => SelectedPaths.Count > 0 && !IsBusy && (IsConnectionReady || !string.IsNullOrEmpty(LocalPeerId)));
 
         ApplyConnectionState(connectionManager.State);
         connectionManager.StateChanged += (_, state) =>
@@ -129,6 +146,8 @@ public class SendViewModel : BaseViewModel, ITransferProgress
     {
         try
         {
+            if (!string.IsNullOrEmpty(LocalPeerId)) { await SendToLocalPeerAsync(); return; }
+
             IsBusy = true;
             ShowProgress = true;
             StatusMessage = "Building transfer manifest...";
@@ -177,23 +196,7 @@ public class SendViewModel : BaseViewModel, ITransferProgress
             EdzioLog.Info("SendVM", $"Channel established: {channel.GetType().Name}");
 
             var sourceRoot = Path.GetDirectoryName(SelectedPaths[0]) ?? SelectedPaths[0];
-            var rateTracker = new TransferRateTracker();
-            var progress = new Progress<TransferProgress>(p =>
-            {
-                ProgressValue = p.Percentage / 100.0;
-                StatusMessage = $"Sending... {p.Percentage:F0}%";
-
-                var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
-                SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
-                RemainingText = snapshot.EtaSeconds is { } eta
-                    ? $"{ByteFormatter.FormatDuration(eta)} remaining"
-                    : "calculating…";
-                TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
-            });
-            var throttledProgress = new ThrottledProgress<TransferProgress>(
-                progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
-
-            await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, throttledProgress);
+            await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, CreateThrottledProgress());
             IsComplete = true;
             ShowProgress = false;
             StatusMessage = "Sent successfully!";
@@ -207,5 +210,51 @@ public class SendViewModel : BaseViewModel, ITransferProgress
         {
             IsBusy = false;
         }
+    }
+
+    private async Task SendToLocalPeerAsync()
+    {
+        var peer = _discovery.DiscoveredPeers.FirstOrDefault(p => p.InstanceId == LocalPeerId);
+        if (peer is null) { StatusMessage = "That device is no longer nearby. Please try again."; IsBusy = false; return; }
+
+        try
+        {
+            IsBusy = true; ShowProgress = true; StatusMessage = "Building transfer manifest...";
+            var sessionId = Guid.NewGuid().ToString();
+            var manifest = await TransferManifestBuilder.BuildAsync(sessionId, SelectedPaths);
+
+            StatusMessage = $"Connecting to {peer.DisplayName}...";
+            var advertisement = new LanEndpointAdvertisement(peer.IpAddresses, peer.Port, peer.TokenBase64, peer.CertSha256Hex);
+            await using var channel = await LanDirect.TryConnectAsync(advertisement, TimeSpan.FromSeconds(3));
+            if (channel is null) { StatusMessage = $"Could not connect to {peer.DisplayName}."; IsBusy = false; ShowProgress = false; return; }
+
+            StatusMessage = $"Waiting for {peer.DisplayName} to accept...";
+            var offer = new TransferOffer(Environment.MachineName,
+                manifest.Files.Select(f => new TransferOfferFile(f.RelativePath, f.SizeBytes)).ToArray());
+            await InstantSendHandshake.SendOfferAsync(channel, offer);
+            var accepted = await InstantSendHandshake.ReceiveResponseAsync(channel);
+            if (!accepted) { StatusMessage = $"{peer.DisplayName} declined the transfer."; IsBusy = false; ShowProgress = false; return; }
+
+            var sourceRoot = Path.GetDirectoryName(SelectedPaths[0]) ?? SelectedPaths[0];
+            await TransferSession.SendAsync(sourceRoot, manifest, channel, _repo, CreateThrottledProgress());
+            IsComplete = true; ShowProgress = false; StatusMessage = "Sent successfully!";
+        }
+        catch (Exception ex) { EdzioLog.Error("SendVM", "Local peer send failed", ex); StatusMessage = $"Error: {ex.Message}"; }
+        finally { IsBusy = false; }
+    }
+
+    private ThrottledProgress<TransferProgress> CreateThrottledProgress()
+    {
+        var rateTracker = new TransferRateTracker();
+        var progress = new Progress<TransferProgress>(p =>
+        {
+            ProgressValue = p.Percentage / 100.0;
+            StatusMessage = $"Sending... {p.Percentage:F0}%";
+            var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
+            SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
+            RemainingText = snapshot.EtaSeconds is { } eta ? $"{ByteFormatter.FormatDuration(eta)} remaining" : "calculating…";
+            TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
+        });
+        return new ThrottledProgress<TransferProgress>(progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
     }
 }

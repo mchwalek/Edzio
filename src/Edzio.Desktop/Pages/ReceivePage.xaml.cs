@@ -16,6 +16,7 @@ public partial class ReceivePage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        if (_vm.IsInstantMode) return; // IncomingTransferCoordinator is already driving this transfer.
         _cts = new CancellationTokenSource();
         _ = _vm.StartAsync(_cts.Token);
     }

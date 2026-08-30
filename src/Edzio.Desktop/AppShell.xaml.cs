@@ -29,5 +29,8 @@ public partial class AppShell : Shell
             if (e.PropertyName == nameof(SettingsViewModel.SignalingServerUrl))
                 connectionManager.UpdateUrl(settings.SignalingServerUrl);
         };
+
+        // Start the always-on instant-receive listener eagerly on launch.
+        services.GetRequiredService<Services.IncomingTransferCoordinator>().Start();
     }
 }

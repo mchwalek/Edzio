@@ -28,6 +28,7 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     private string _speedText = "—";
     private string _remainingText = "calculating…";
     private string _transferredText = "";
+    private bool _isInstantMode;
 
     public string PairingCode { get => _pairingCode; private set => SetProperty(ref _pairingCode, value); }
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
@@ -75,6 +76,14 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     /// <summary>Bytes received so far vs. total, formatted for display (e.g. "12.3 MB / 45.0 MB").</summary>
     public string TransferredText { get => _transferredText; private set => SetProperty(ref _transferredText, value); }
 
+    /// <summary>
+    /// True when this VM is displaying an instant (nearby-peer) receive driven by
+    /// <see cref="BeginInstantReceive"/> rather than the pairing-code/signaling flow started by <see cref="StartAsync"/>.
+    /// This VM is a DI singleton so <see cref="Pages.ReceivePage"/> checks this flag on appearing to avoid
+    /// starting a redundant signaling flow while an instant transfer is already in progress.
+    /// </summary>
+    public bool IsInstantMode { get => _isInstantMode; private set => SetProperty(ref _isInstantMode, value); }
+
     public ReceiveViewModel(ISignalingClient signaling, SignalingConnectionManager connectionManager,
         TransferRepository repo, SettingsViewModel settings, ILogger<WebRtcChannel> webRtcLogger)
     {
@@ -88,8 +97,81 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
     private void RefreshInitialStatusVisibility()
         => ShowInitialStatus = !IsConnectingToServer && !ShowCode && !ShowProgress && !IsComplete;
 
+    /// <summary>
+    /// Clears all display state back to defaults. Called at the start of every fresh receive
+    /// (signaling or instant) since this VM is a singleton and must not leak a prior transfer's
+    /// state (e.g. a lingering "Transfer complete!") into the next one.
+    /// </summary>
+    private void ResetState()
+    {
+        IsInstantMode = false;
+        PairingCode = "";
+        StatusMessage = "Starting...";
+        ProgressValue = 0;
+        ShowCode = false;
+        ShowProgress = false;
+        IsComplete = false;
+        IsConnectingToServer = false;
+        CompletedPath = null;
+        SpeedText = "—";
+        RemainingText = "calculating…";
+        TransferredText = "";
+    }
+
+    /// <summary>Builds a throttled <see cref="TransferProgress"/> reporter that updates this VM's display fields.</summary>
+    private ThrottledProgress<TransferProgress> CreateThrottledProgress()
+    {
+        var rateTracker = new TransferRateTracker();
+        var progress = new Progress<TransferProgress>(p =>
+        {
+            ProgressValue = p.Percentage / 100.0;
+            StatusMessage = $"Receiving... {p.Percentage:F0}%";
+
+            var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
+            SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
+            RemainingText = snapshot.EtaSeconds is { } eta
+                ? $"{ByteFormatter.FormatDuration(eta)} remaining"
+                : "calculating…";
+            TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
+        });
+        return new ThrottledProgress<TransferProgress>(
+            progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
+    }
+
+    /// <summary>
+    /// Switches this VM into instant-receive mode: resets prior state and shows a progress screen
+    /// for a transfer that <see cref="Services.IncomingTransferCoordinator"/> is already driving.
+    /// </summary>
+    public void BeginInstantReceive(string senderName)
+    {
+        ResetState();
+        IsInstantMode = true;
+        ShowProgress = true;
+        StatusMessage = $"Receiving from {senderName}…";
+    }
+
+    /// <summary>Builds the progress reporter an instant-receive caller feeds into <c>TransferSession.ReceiveAsync</c>.</summary>
+    public IProgress<TransferProgress> CreateInstantReceiveProgress() => CreateThrottledProgress();
+
+    /// <summary>Marks an instant receive as successfully completed.</summary>
+    public void CompleteInstantReceive(string outputRoot)
+    {
+        CompletedPath = outputRoot;
+        IsComplete = true;
+        ShowProgress = false;
+        StatusMessage = "Transfer complete!";
+    }
+
+    /// <summary>Marks an instant receive as failed, showing the error inline (no popup).</summary>
+    public void FailInstantReceive(string message)
+    {
+        StatusMessage = $"Error: {message}";
+        ShowProgress = false;
+    }
+
     public async Task StartAsync(CancellationToken ct = default)
     {
+        ResetState();
         try
         {
             IsConnectingToServer = true;
@@ -137,21 +219,7 @@ public class ReceiveViewModel : BaseViewModel, ITransferProgress
             var outputRoot = _settings.DownloadLocation;
             Directory.CreateDirectory(outputRoot);
 
-            var rateTracker = new TransferRateTracker();
-            var progress = new Progress<TransferProgress>(p =>
-            {
-                ProgressValue = p.Percentage / 100.0;
-                StatusMessage = $"Receiving... {p.Percentage:F0}%";
-
-                var snapshot = rateTracker.Sample(p.BytesSent, p.TotalBytes, DateTimeOffset.UtcNow);
-                SpeedText = ByteFormatter.FormatRate(snapshot.BytesPerSecond);
-                RemainingText = snapshot.EtaSeconds is { } eta
-                    ? $"{ByteFormatter.FormatDuration(eta)} remaining"
-                    : "calculating…";
-                TransferredText = $"{ByteFormatter.Format(p.BytesSent)} / {ByteFormatter.Format(p.TotalBytes)}";
-            });
-            var throttledProgress = new ThrottledProgress<TransferProgress>(
-                progress, TimeSpan.FromMilliseconds(500), p => p.BytesSent >= p.TotalBytes);
+            var throttledProgress = CreateThrottledProgress();
 
             await TransferSession.ReceiveAsync(outputRoot, "Sender", channel, _repo, throttledProgress, ct);
 
