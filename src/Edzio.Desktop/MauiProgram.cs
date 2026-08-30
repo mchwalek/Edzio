@@ -49,11 +49,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<ConnectionStatusViewModel>();
         builder.Services.AddSingleton<IFolderPicker>(FolderPicker.Default);
 
-        // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs)
+        // ViewModels (SettingsViewModel is singleton because SignalingServerUrl is read by other VMs;
+        // ReceiveViewModel is singleton so IncomingTransferCoordinator can drive its progress UI for instant receives)
         builder.Services.AddSingleton<SettingsViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<SendViewModel>();
-        builder.Services.AddTransient<ReceiveViewModel>();
+        builder.Services.AddSingleton<ReceiveViewModel>();
 
         // Shell (singleton — only one instance ever needed)
         builder.Services.AddSingleton<AppShell>();

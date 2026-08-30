@@ -16,18 +16,21 @@ public sealed class IncomingTransferCoordinator
     private readonly MdnsDiscovery _mdnsDiscovery;
     private readonly SettingsViewModel _settings;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ReceiveViewModel _receiveViewModel;
 
     /// <summary>Creates the coordinator. Resolved from DI as a singleton.</summary>
     public IncomingTransferCoordinator(
         InstantReceiveService instantReceiveService,
         MdnsDiscovery mdnsDiscovery,
         SettingsViewModel settings,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        ReceiveViewModel receiveViewModel)
     {
         _instantReceiveService = instantReceiveService;
         _mdnsDiscovery = mdnsDiscovery;
         _settings = settings;
         _scopeFactory = scopeFactory;
+        _receiveViewModel = receiveViewModel;
     }
 
     /// <summary>Starts the LAN listener, publishes its endpoint via mDNS, and begins accepting instant-send offers. Call once at app launch.</summary>
@@ -53,6 +56,12 @@ public sealed class IncomingTransferCoordinator
         e.Decide(accepted);
         if (!accepted) return;
 
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            _receiveViewModel.BeginInstantReceive(e.Offer.SenderName);
+            await Shell.Current.GoToAsync("receive");
+        });
+
         _ = ReceiveAcceptedTransferAsync(e);
     }
 
@@ -62,15 +71,16 @@ public sealed class IncomingTransferCoordinator
         {
             using var scope = _scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<TransferRepository>();
-            await TransferSession.ReceiveAsync(_settings.DownloadLocation, e.Offer.SenderName, e.Channel, repo);
+            var progress = _receiveViewModel.CreateInstantReceiveProgress();
+            await TransferSession.ReceiveAsync(_settings.DownloadLocation, e.Offer.SenderName, e.Channel, repo, progress);
             await MainThread.InvokeOnMainThreadAsync(() =>
-                Shell.Current.CurrentPage.DisplayAlert("Transfer complete", $"Received files from {e.Offer.SenderName}.", "OK"));
+                _receiveViewModel.CompleteInstantReceive(_settings.DownloadLocation));
         }
         catch (Exception ex)
         {
             EdzioLog.Error("InstantReceive", "Receive failed", ex);
             await MainThread.InvokeOnMainThreadAsync(() =>
-                Shell.Current.CurrentPage.DisplayAlert("Transfer failed", ex.Message, "OK"));
+                _receiveViewModel.FailInstantReceive(ex.Message));
         }
         finally
         {
