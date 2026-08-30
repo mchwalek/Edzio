@@ -38,6 +38,7 @@
                    Placeholder="Enter code from receiver (e.g. MAPLE7)"
                    FontSize="22" FontAttributes="Bold"
                    MaxLength="6"
+                   ReturnCommand="{Binding SendCommand}"
                    IsVisible="{Binding IsLocalPeerSend, Converter={StaticResource InverseBoolConverter}}" />
 
             <Button Text="Send Now" Command="{Binding SendCommand}"
